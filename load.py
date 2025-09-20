@@ -1,11 +1,7 @@
 """
 AutoHonk Plugin for Elite Dangerous Market Connector (EDMC)
 Automatically sends a keypress when entering a new system to trigger the Discovery Scanner (honk)
-
-Author: Generated for user request
-Version: 1.0.0
 """
-
 import sys
 import os
 import logging
@@ -17,18 +13,9 @@ from typing import Optional, Dict, Any
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import glob
-
-# Import for keypress simulation
-if sys.platform == "win32":
-    import win32api
-    import win32con
-    import win32gui
-elif sys.platform == "darwin":
-    # macOS - using subprocess for osascript
-    import subprocess
-elif sys.platform.startswith("linux"):
-    # Linux - using subprocess for xdotool
-    import subprocess
+import win32api
+import win32con
+import win32gui
 
 # Plugin metadata
 plugin_name = "AutoHonk"
@@ -185,7 +172,7 @@ def plugin_prefs(parent: tk.Tk, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
     help_text = tk.Label(
         frame,
         text="AutoHonk will use your Primary Fire key when auto-detect is enabled.\n"
-             "Otherwise, specify a manual key override. Common keys: space, 1, 2, f1, etc.\n"
+             "Otherwise, specify a manual key override.\n"
              "The key will be pressed when entering a new system to trigger Discovery Scanner.",
         wraplength=500,
         justify="left"
@@ -302,10 +289,6 @@ def send_keypress(key: str, hold_duration: float) -> None:
     try:
         if sys.platform == "win32":
             send_keypress_windows(key, hold_duration)
-        elif sys.platform == "darwin":
-            send_keypress_macos(key, hold_duration)
-        elif sys.platform.startswith("linux"):
-            send_keypress_linux(key, hold_duration)
         else:
             logger.warning(f"Unsupported platform: {sys.platform}")
     except Exception as e:
@@ -383,31 +366,14 @@ def get_elite_bindings_paths() -> list:
     """
     paths = []
     
-    if sys.platform == "win32":
-        # Windows paths
-        local_appdata = os.environ.get('LOCALAPPDATA')
-        if local_appdata:
-            bindings_dir = Path(local_appdata) / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings"
-            if bindings_dir.exists():
-                # Look for .binds files
-                paths.extend(glob.glob(str(bindings_dir / "*.binds")))
-    elif sys.platform == "darwin":
-        # macOS paths
-        home = Path.home()
-        bindings_dir = home / "Library" / "Application Support" / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings"
+
+    # Windows paths
+    local_appdata = os.environ.get('LOCALAPPDATA')
+    if local_appdata:
+        bindings_dir = Path(local_appdata) / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings"
         if bindings_dir.exists():
+            # Look for .binds files
             paths.extend(glob.glob(str(bindings_dir / "*.binds")))
-    elif sys.platform.startswith("linux"):
-        # Linux paths (if running under Wine or similar)
-        home = Path.home()
-        # Common Wine prefix locations
-        wine_paths = [
-            home / ".wine" / "drive_c" / "users" / os.environ.get('USER', 'user') / "AppData" / "Local" / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings",
-            home / ".local" / "share" / "Steam" / "steamapps" / "compatdata" / "359320" / "pfx" / "drive_c" / "users" / "steamuser" / "AppData" / "Local" / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings"
-        ]
-        for wine_path in wine_paths:
-            if wine_path.exists():
-                paths.extend(glob.glob(str(wine_path / "*.binds")))
     
     return paths
 
