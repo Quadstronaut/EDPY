@@ -52,6 +52,8 @@ hold_var = None
 auto_detect_var = None
 detected_key_label = None
 window_title_var = None
+status_frame = None
+status_label = None
 
 def plugin_start3(plugin_dir: str) -> str:
     """
@@ -87,6 +89,40 @@ def plugin_start3(plugin_dir: str) -> str:
 def plugin_stop() -> None:
     """Stop the plugin."""
     logger.info("AutoHonk Plugin stopping")
+
+def plugin_app(parent: tk.Frame) -> tk.Frame:
+    """
+    Create the main application UI for the plugin.
+    
+    Args:
+        parent: Parent frame in the main EDMC window
+        
+    Returns:
+        Frame containing plugin UI elements
+    """
+    global status_frame, status_label
+    
+    # Create a frame to hold our status indicator
+    status_frame = tk.Frame(parent)
+    status_frame.columnconfigure(1, weight=1)
+    
+    # Status indicator (colored box + text)
+    status_label = tk.Label(
+        status_frame,
+        text="AutoHonk Disabled",
+        fg="white",
+        bg="red",
+        padx=5,
+        pady=2,
+        relief="solid",
+        borderwidth=1
+    )
+    status_label.grid(row=0, column=0, sticky="w")
+    
+    # Update initial status
+    update_status_display()
+    
+    return status_frame
 
 def plugin_prefs(parent: tk.Tk, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
     """
@@ -232,7 +268,26 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
     config['auto_detect_key'] = auto_detect_var.get()
     config['window_title'] = window_title_var.get()
     
+    # Update the status display when preferences change
+    update_status_display()
+    
     logger.info(f"AutoHonk preferences updated: {config}")
+
+def update_status_display():
+    """Update the main window status indicator."""
+    if status_label is not None:
+        if config['enabled']:
+            status_label.config(
+                text="AutoHonk Enabled",
+                bg="green",
+                fg="white"
+            )
+        else:
+            status_label.config(
+                text="AutoHonk Disabled", 
+                bg="red",
+                fg="white"
+            )
 
 def on_auto_detect_changed():
     """Handle changes to the auto-detect checkbox."""
@@ -296,6 +351,14 @@ def delayed_honk(delay: float, key: str, hold_duration: float) -> None:
         key: Key to press
         hold_duration: How long to hold the key
     """
+    # Show "honking" status briefly
+    if status_label is not None:
+        status_label.config(
+            text="AutoHonk - Firing!",
+            bg="orange",
+            fg="white"
+        )
+    
     time.sleep(delay)
     
     # Determine which key to use
@@ -309,6 +372,14 @@ def delayed_honk(delay: float, key: str, hold_duration: float) -> None:
     
     send_keypress(actual_key, hold_duration)
     logger.info(f"AutoHonk: Pressed {actual_key} for {hold_duration}s")
+    
+    # Restore normal status after a brief moment
+    threading.Thread(target=restore_status_after_delay, daemon=True).start()
+
+def restore_status_after_delay():
+    """Restore the normal status display after a short delay."""
+    time.sleep(1.5)  # Show "Firing!" for 1.5 seconds
+    update_status_display()
 
 def send_keypress(key: str, hold_duration: float) -> None:
     """
