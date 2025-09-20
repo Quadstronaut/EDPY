@@ -1,7 +1,11 @@
 """
 AutoHonk Plugin for Elite Dangerous Market Connector (EDMC)
 Automatically sends a keypress when entering a new system to trigger the Discovery Scanner (honk)
+
+Author: Generated for user request
+Version: 1.0.0
 """
+
 import sys
 import os
 import logging
@@ -13,9 +17,15 @@ from typing import Optional, Dict, Any
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import glob
-import win32api
-import win32con
-import win32gui
+
+# Import for keypress simulation - Windows only
+if sys.platform == "win32":
+    import win32api
+    import win32con
+    import win32gui
+else:
+    # Plugin only supports Windows
+    raise ImportError("AutoHonk plugin only supports Windows")
 
 # Plugin metadata
 plugin_name = "AutoHonk"
@@ -29,7 +39,8 @@ config = {
     'key_to_press': 'auto',  # 'auto' means detect from bindings, or specific key
     'delay_seconds': 2.0,  # Delay after system entry before honking
     'hold_duration': 0.1,   # How long to hold the key
-    'auto_detect_key': True  # Whether to auto-detect primary fire key
+    'auto_detect_key': True,  # Whether to auto-detect primary fire key
+    'window_title': 'Elite - Dangerous (CLIENT)'  # Elite Dangerous window title to target
 }
 detected_primary_fire_key = None
 
@@ -40,6 +51,7 @@ delay_var = None
 hold_var = None
 auto_detect_var = None
 detected_key_label = None
+window_title_var = None
 
 def plugin_start3(plugin_dir: str) -> str:
     """
@@ -51,7 +63,7 @@ def plugin_start3(plugin_dir: str) -> str:
     Returns:
         Plugin name or error message
     """
-    global enabled_var, key_var, delay_var, hold_var, auto_detect_var, detected_primary_fire_key
+    global enabled_var, key_var, delay_var, hold_var, auto_detect_var, detected_primary_fire_key, window_title_var
     
     logger.info(f"AutoHonk Plugin {plugin_version} starting")
     
@@ -61,6 +73,7 @@ def plugin_start3(plugin_dir: str) -> str:
     delay_var = tk.DoubleVar(value=config['delay_seconds'])
     hold_var = tk.DoubleVar(value=config['hold_duration'])
     auto_detect_var = tk.BooleanVar(value=config['auto_detect_key'])
+    window_title_var = tk.StringVar(value=config['window_title'])
     
     # Try to detect the primary fire key from Elite Dangerous bindings
     detected_primary_fire_key = detect_primary_fire_key()
@@ -167,12 +180,30 @@ def plugin_prefs(parent: tk.Tk, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
     )
     hold_spinbox.grid(row=row, column=1, sticky="w", padx=(10, 0))
     
+    # Window title
+    row += 1
+    tk.Label(frame, text="Elite Dangerous window title:").grid(row=row, column=0, sticky="w")
+    window_title_entry = tk.Entry(frame, textvariable=window_title_var, width=30)
+    window_title_entry.grid(row=row, column=1, sticky="w", padx=(10, 0))
+    
+    # Window title help
+    row += 1
+    window_help = tk.Label(
+        frame,
+        text="Common titles: 'Elite - Dangerous (CLIENT)', 'Elite - Dangerous (ALPHA)', etc.\n"
+             "For multiboxing, use specific window titles or partial matches.",
+        wraplength=500,
+        justify="left",
+        fg="gray"
+    )
+    window_help.grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 5))
+    
     # Help text
     row += 1
     help_text = tk.Label(
         frame,
         text="AutoHonk will use your Primary Fire key when auto-detect is enabled.\n"
-             "Otherwise, specify a manual key override.\n"
+             "Otherwise, specify a manual key override. Common keys: space, 1, 2, f1, etc.\n"
              "The key will be pressed when entering a new system to trigger Discovery Scanner.",
         wraplength=500,
         justify="left"
@@ -199,6 +230,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
     config['delay_seconds'] = delay_var.get()
     config['hold_duration'] = hold_var.get()
     config['auto_detect_key'] = auto_detect_var.get()
+    config['window_title'] = window_title_var.get()
     
     logger.info(f"AutoHonk preferences updated: {config}")
 
@@ -280,23 +312,91 @@ def delayed_honk(delay: float, key: str, hold_duration: float) -> None:
 
 def send_keypress(key: str, hold_duration: float) -> None:
     """
-    Send a keypress to the active window.
+    Send a keypress to Elite Dangerous window.
     
     Args:
         key: Key to press
         hold_duration: How long to hold the key
     """
     try:
-        if sys.platform == "win32":
-            send_keypress_windows(key, hold_duration)
-        else:
-            logger.warning(f"Unsupported platform: {sys.platform}")
+        send_keypress_windows(key, hold_duration)
     except Exception as e:
         logger.error(f"Failed to send keypress: {e}")
 
+def find_elite_window() -> Optional[int]:
+    """
+    Find the Elite Dangerous window handle.
+    
+    Returns:
+        Window handle or None if not found
+    """
+    try:
+        window_title = config.get('window_title', 'Elite - Dangerous (CLIENT)')
+        
+        def enum_windows_callback(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if window_title.lower() in title.lower():
+                    windows.append(hwnd)
+            return True
+        
+        windows = []
+        win32gui.EnumWindows(enum_windows_callback, windows)
+        
+        if windows:
+            # Return the first matching window
+            logger.info(f"Found Elite Dangerous window: {win32gui.GetWindowText(windows[0])}")
+            return windows[0]
+        else:
+            logger.warning(f"Elite Dangerous window not found with title containing: {window_title}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error finding Elite Dangerous window: {e}")
+        return None
+
 def send_keypress_windows(key: str, hold_duration: float) -> None:
-    """Send keypress on Windows using win32api."""
+    """Send keypress on Windows to Elite Dangerous window."""
+    # Find Elite Dangerous window
+    elite_hwnd = find_elite_window()
+    
+    if elite_hwnd:
+        # Bring Elite Dangerous to foreground (optional, can be disabled)
+        try:
+            win32gui.SetForegroundWindow(elite_hwnd)
+            time.sleep(0.1)  # Small delay to ensure window is focused
+        except Exception as e:
+            logger.warning(f"Could not set Elite Dangerous as foreground window: {e}")
+    
     # Get the virtual key code
+    vk_code = ord(key.upper()) if len(key) == 1 else get_windows_vk_code(key)
+    
+    if vk_code is None:
+        logger.error(f"Unknown key: {key}")
+        return
+    
+    if elite_hwnd:
+        # Send key to specific window using PostMessage
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP = 0x0101
+        
+        try:
+            # Send key down
+            win32gui.PostMessage(elite_hwnd, WM_KEYDOWN, vk_code, 0)
+            time.sleep(hold_duration)
+            # Send key up
+            win32gui.PostMessage(elite_hwnd, WM_KEYUP, vk_code, 0)
+            logger.info(f"Sent keypress {key} to Elite Dangerous window")
+        except Exception as e:
+            logger.error(f"Failed to send message to Elite window: {e}")
+            # Fallback to global keypress
+            send_global_keypress_windows(key, hold_duration)
+    else:
+        # Fallback to global keypress if window not found
+        send_global_keypress_windows(key, hold_duration)
+
+def send_global_keypress_windows(key: str, hold_duration: float) -> None:
+    """Send global keypress on Windows using win32api."""
     vk_code = ord(key.upper()) if len(key) == 1 else get_windows_vk_code(key)
     
     if vk_code is None:
@@ -308,20 +408,6 @@ def send_keypress_windows(key: str, hold_duration: float) -> None:
     time.sleep(hold_duration)
     # Send key up
     win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
-
-def send_keypress_macos(key: str, hold_duration: float) -> None:
-    """Send keypress on macOS using osascript."""
-    # Convert key to AppleScript key code if needed
-    script = f'tell application "System Events" to keystroke "{key}"'
-    subprocess.run(['osascript', '-e', script], capture_output=True)
-
-def send_keypress_linux(key: str, hold_duration: float) -> None:
-    """Send keypress on Linux using xdotool."""
-    # Send key down
-    subprocess.run(['xdotool', 'keydown', key], capture_output=True)
-    time.sleep(hold_duration)
-    # Send key up  
-    subprocess.run(['xdotool', 'keyup', key], capture_output=True)
 
 def get_windows_vk_code(key: str) -> Optional[int]:
     """
@@ -359,14 +445,13 @@ def get_windows_vk_code(key: str) -> Optional[int]:
 
 def get_elite_bindings_paths() -> list:
     """
-    Get possible paths to Elite Dangerous bindings files.
+    Get possible paths to Elite Dangerous bindings files on Windows.
     
     Returns:
         List of potential binding file paths
     """
     paths = []
     
-
     # Windows paths
     local_appdata = os.environ.get('LOCALAPPDATA')
     if local_appdata:
