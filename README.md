@@ -1,14 +1,16 @@
 # AutoHonk EDMC Plugin
 
-An Elite Dangerous Market Connector (EDMC) plugin that automatically triggers your Discovery Scanner ("honks") when you enter a new system.
+An Elite Dangerous Market Connector (EDMC) plugin that automatically triggers your Primary Fire key (which is also your Discovery Scanner) when you enter a new system.
 
 ## Features
 
+- **Auto-detects your Primary Fire key** from Elite Dangerous bindings files
 - Automatically detects when you enter a new system via FSD jump
-- Configurable key binding to match your in-game Discovery Scanner hotkey
+- Uses your actual Primary Fire key binding from the game
 - Adjustable delay before triggering the honk
 - Configurable key hold duration
 - Cross-platform support (Windows, macOS, Linux)
+- Manual key override option
 - Easy enable/disable toggle
 
 ## Installation
@@ -42,9 +44,19 @@ After installation and restarting EDMC:
 2. Go to the `AutoHonk` tab
 3. Configure the following options:
    - **Enable AutoHonk**: Check to enable the plugin
-   - **Key to press**: The key bound to your Discovery Scanner in Elite Dangerous (default: "1")
+   - **Auto-detect Primary Fire key**: Automatically finds your Primary Fire binding from Elite Dangerous (recommended)
+   - **Detected key**: Shows the key that was found in your bindings (with refresh button)
+   - **Manual key override**: Specify a different key if auto-detection fails or you want to use a different key
    - **Delay (seconds)**: How long to wait after entering a system before honking (default: 2.0)
    - **Hold duration (seconds)**: How long to hold the key press (default: 0.1)
+
+## How It Works
+
+The plugin reads your Elite Dangerous bindings files to find your Primary Fire key binding. In Elite Dangerous, the Primary Fire key is also used for the Discovery Scanner when no weapons are deployed. The plugin looks in these locations:
+
+- **Windows**: `%LOCALAPPDATA%\Frontier Developments\Elite Dangerous\Options\Bindings\`
+- **macOS**: `~/Library/Application Support/Frontier Developments/Elite Dangerous/Options/Bindings/`
+- **Linux**: Various Wine prefix locations
 
 ## Usage
 
