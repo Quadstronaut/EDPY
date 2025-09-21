@@ -19,6 +19,9 @@ import logging
 import ctypes
 import ctypes.wintypes
 
+# Hardware input simulation
+import pydirectinput
+
 # File monitoring
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -273,37 +276,30 @@ class AutoHonk:
             return None
 
     def send_keypress(self, key: str, duration: float):
-            """Send keypress to Elite Dangerous window using PostMessage."""
-            try:
-                elite_hwnd = self.find_elite_window()
-                if not elite_hwnd:
-                    print("❌ Elite Dangerous window not found - cannot send keypress")
-                    return
+        """Send keypress to Elite Dangerous window using PyDirectInput."""
+        try:
+            # Note: PyDirectInput handles sending to the active window automatically
+            # You might still want to bring it to the foreground to be safe
+            elite_hwnd = self.find_elite_window()
+            if not elite_hwnd:
+                print("❌ Elite Dangerous window not found - cannot send keypress")
+                return
 
-                vk_code = self.get_virtual_key_code(key)
-                if vk_code is None:
-                    print(f"❌ Unknown key: {key}")
-                    return
+            # The key names in PyDirectInput are slightly different
+            pydirectinput.keyDown(key)
+            print("⬇️  Key DOWN: %s" % key)
 
-                print(
-                    f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds..."
-                )
+            # Hold for specified duration
+            time.sleep(duration)
 
-                # Use PostMessage for key down and key up events
-                win32api.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, vk_code, 0)
-                print(f"⬇️  Key DOWN: {key}")
+            pydirectinput.keyUp(key)
+            print("⬆️  Key UP: %s" % key)
+            print("✅ Keypress complete!")
 
-                # Hold for specified duration
-                time.sleep(duration)
+        except Exception as e:
+            print("❌ Error sending keypress: %s" % e)
+            logger.error("Keypress error: %s", e)
 
-                # Send key up
-                win32api.PostMessage(elite_hwnd, win32con.WM_KEYUP, vk_code, 0)
-                print(f"⬆️  Key UP: {key}")
-                print(f"✅ Keypress complete!")
-
-            except Exception as e:
-                print(f"❌ Error sending keypress: {e}")
-                logger.error("Keypress error: %s", e)
 
     def process_journal_entry(self, entry: dict):
         """Process a journal entry and trigger honk if needed."""
