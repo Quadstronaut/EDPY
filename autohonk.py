@@ -13,23 +13,22 @@ import threading
 from pathlib import Path
 from typing import Optional
 import xml.etree.ElementTree as ET
-import glob
 import logging
-from datetime import datetime
 
-# Windows API imports
-import win32api
-import win32con
-import win32gui
-import win32process
-
-# Additional Windows API imports
+# Standard Windows API imports
 import ctypes
 import ctypes.wintypes
 
 # File monitoring
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
+# Third party API imports
+import win32api
+import win32con
+import win32gui
+import win32process
+
 
 # Configuration
 CONFIG = {
@@ -125,7 +124,7 @@ class AutoHonk:
             )
 
             if not bindings_dir.exists():
-                logger.warning(f"Bindings directory not found: {bindings_dir}")
+                logger.warning("Bindings directory not found: %s", bindings_dir)
                 return
 
             binds_files = list(bindings_dir.glob("*.binds"))
@@ -135,7 +134,7 @@ class AutoHonk:
 
             # Use the most recent bindings file
             latest_bindings = max(binds_files, key=lambda x: x.stat().st_mtime)
-            logger.info(f"Reading bindings from: {latest_bindings}")
+            logger.info("Reading bindings from: %s", latest_bindings)
 
             tree = ET.parse(latest_bindings)
             root = tree.getroot()
@@ -150,14 +149,16 @@ class AutoHonk:
                     if device == "Keyboard" and key_attr:
                         self.primary_fire_key = self.convert_elite_key_name(key_attr)
                         logger.info(
-                            f"Detected Primary Fire key: {key_attr} -> {self.primary_fire_key}"
+                            "Detected Primary Fire key: %s -> %s",
+                            key_attr,
+                            self.primary_fire_key,
                         )
                         return
 
             logger.warning("PrimaryFire binding not found in bindings file")
 
         except Exception as e:
-            logger.error(f"Error detecting primary fire key: {e}")
+            logger.error("Error detecting primary fire key: %s", e)
 
     def convert_elite_key_name(self, elite_key: str) -> str:
         """Convert Elite Dangerous key name to Windows virtual key format."""
@@ -227,16 +228,17 @@ class AutoHonk:
 
             if windows:
                 hwnd, title, process = windows[0]
-                logger.info(f"Found Elite window: '{title}' (PID: {process})")
+                logger.info("Found Elite window: '%s' (PID: %s)", title, process)
                 return hwnd
             else:
                 logger.warning(
-                    f"Elite Dangerous window not found (looking for process EliteDangerous64 with title containing '{CONFIG['window_title_contains']}')"
+                    "Elite Dangerous window not found (looking for process EliteDangerous64 with title containing '%s')",
+                    CONFIG["window_title_contains"],
                 )
                 return None
 
         except Exception as e:
-            logger.error(f"Error finding Elite window: {e}")
+            logger.error("Error finding Elite window: %s", e)
             return None
 
     def get_virtual_key_code(self, key: str) -> Optional[int]:
@@ -323,7 +325,7 @@ def send_keypress(self, key: str, duration: float):
 
     except Exception as e:
         print(f"❌ Error sending keypress: {e}")
-        logger.error(f"Keypress error: {e}")
+        logger.error("Keypress error: %s", e)
 
     def process_journal_entry(self, entry: dict):
         """Process a journal entry and trigger honk if needed."""
@@ -334,10 +336,10 @@ def send_keypress(self, key: str, duration: float):
             if event_type == "FSDJump":
                 new_system = entry.get("StarSystem")
                 if new_system and new_system != self.current_system:
-                    print(f"\n🚀 FSD JUMP DETECTED!")
-                    print(f"   Time: {timestamp}")
-                    print(f"   From: {self.current_system or 'Unknown'}")
-                    print(f"   To: {new_system}")
+                    print("\n🚀 FSD JUMP DETECTED!")
+                    print(f"  Time: {timestamp}")
+                    print(f"  From: {self.current_system or 'Unknown'}")
+                    print(f"  To: {new_system}")
 
                     self.current_system = new_system
 
@@ -345,17 +347,17 @@ def send_keypress(self, key: str, duration: float):
                     key_to_use = None
                     if CONFIG["manual_key_override"]:
                         key_to_use = CONFIG["manual_key_override"]
-                        print(f"   Using manual key override: {key_to_use}")
+                        print(f"  Using manual key override: {key_to_use}")
                     elif CONFIG["auto_detect_primary_fire"] and self.primary_fire_key:
                         key_to_use = self.primary_fire_key
-                        print(f"   Using detected Primary Fire key: {key_to_use}")
+                        print(f"  Using detected Primary Fire key: {key_to_use}")
                     else:
                         key_to_use = "1"  # Default fallback
-                        print(f"   Using fallback key: {key_to_use}")
+                        print(f"  Using fallback key: {key_to_use}")
 
                     # Schedule the honk
                     print(
-                        f"   Waiting {CONFIG['delay_after_jump']} seconds before honking..."
+                        f"  Waiting {CONFIG['delay_after_jump']} seconds before honking..."
                     )
 
                     def delayed_honk():
@@ -374,7 +376,7 @@ def send_keypress(self, key: str, duration: float):
                     print(f"📍 Current system: {system}")
 
         except Exception as e:
-            logger.error(f"Error processing journal entry: {e}")
+            logger.error("Error processing journal entry: %s", e)
 
 
 class JournalMonitor(FileSystemEventHandler):
@@ -396,13 +398,13 @@ class JournalMonitor(FileSystemEventHandler):
                 self.file_position = (
                     latest_journal.stat().st_size
                 )  # Start at end of file
-                logger.info(f"Monitoring journal file: {latest_journal}")
+                logger.info("Monitoring journal file: %s", latest_journal)
                 print(f"📖 Monitoring: {latest_journal.name}")
             else:
                 logger.warning("No journal files found")
                 print("⚠️  No journal files found")
-        except Exception as e:
-            logger.error(f"Error finding journal files: {e}")
+        except Exception as journal_exception:
+            logger.error("Error finding journal files: %s", journal_exception)
 
     def on_modified(self, event):
         """Handle file modification events."""
@@ -448,7 +450,7 @@ class JournalMonitor(FileSystemEventHandler):
                             pass  # Skip invalid JSON lines
 
         except Exception as e:
-            logger.error(f"Error reading journal file: {e}")
+            logger.error("Error reading journal file: %s", e)
 
 
 def main():
