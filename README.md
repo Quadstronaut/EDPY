@@ -1,133 +1,93 @@
-# AutoHonk EDMC Plugin
+# Elite Dangerous PY
+My personal python scripts for Elite: Dangerous
 
-An Elite Dangerous Market Connector (EDMC) plugin that automatically triggers your Primary Fire key (which is also your Discovery Scanner) when you enter a new system.
+**Elite Dangerous AutoHonk** is a standalone Python script that automatically uses your ship's discovery scanner (honk) after every FSD jump in Elite Dangerous. It works by monitoring your game's journal files and simulating a keypress at the appropriate time.
+
+-----
 
 ## Features
 
-- **Auto-detects your Primary Fire key** from Elite Dangerous bindings files
-- Automatically detects when you enter a new system via FSD jump
-- Uses your actual Primary Fire key binding from the game
-- Adjustable delay before triggering the honk
-- Configurable key hold duration
-- Cross-platform support (Windows, macOS, Linux)
-- Manual key override option
-- Easy enable/disable toggle
+  - **Automatic FSD Jump Detection**: Monitors your Elite Dangerous journal files to detect FSD jumps in real-time.
+  - **Configurable Delay**: Waits a specified amount of time after a jump before honking, giving you time to regain control.
+  - **Automatic Key Detection**: By default, it automatically detects your **Primary Fire** key from your game's bindings file.
+  - **Manual Key Override**: Option to manually set a specific key to use for the honk.
+  - **Simulated Keypress**: Safely sends a keypress command to the Elite Dangerous window, holding the key for a configurable duration.
+  - **Foreground Window Focus**: Ensures the Elite Dangerous window is in the foreground before sending the keypress to guarantee the action is registered.
 
-## Installation
+-----
 
-### Method 1: Manual Installation
+## Requirements
 
-1. **Download the Plugin**: Save the `load.py` file from the artifact above
-2. **Find your EDMC plugins folder**:
-   - **Windows**: `%LOCALAPPDATA%\EDMarketConnector\plugins\` or `C:\Users\[YourUsername]\AppData\Local\EDMarketConnector\plugins\`
-   - **macOS**: `~/Library/Application Support/EDMarketConnector/plugins/`
-   - **Linux**: `~/.local/share/EDMarketConnector/plugins/`
-3. **Create plugin directory**: Create a new folder called `AutoHonk` in the plugins directory
-4. **Install the plugin**: Place the `load.py` file inside the `AutoHonk` folder
-5. **Restart EDMC**: Close and restart Elite Dangerous Market Connector
+You need to have Python installed on your system. This script has a few dependencies you'll need to install:
 
-### Method 2: Via EDMC Plugins Folder
+  - `pywin32`: For interacting with Windows API (finding and focusing the game window).
+  - `watchdog`: For monitoring the journal folder for new file changes.
+  - `pydirectinput`: For simulating keyboard input.
 
-1. Open EDMC
-2. Go to `File` > `Settings`
-3. Click on the `Plugins` tab
-4. Click `Open` next to "Plugins folder"
-5. Create a new folder called `AutoHonk`
-6. Place the `load.py` file inside this folder
-7. Restart EDMC
+To install these, run the following command in your terminal or command prompt:
+```sh
+pip install pywin32 watchdog pydirectinput
+```
 
-## Configuration
+If you installed python3 via Chocolatey or Scoop on Windows you may need to call it by pip3:
+```sh
+pip install pywin32 watchdog pydirectinput
+```
 
-After installation and restarting EDMC:
+-----
 
-1. Open EDMC Settings (`File` > `Settings`)
-2. Go to the `AutoHonk` tab
-3. Configure the following options:
-   - **Enable AutoHonk**: Check to enable the plugin
-   - **Auto-detect Primary Fire key**: Automatically finds your Primary Fire binding from Elite Dangerous (recommended)
-   - **Detected key**: Shows the key that was found in your bindings (with refresh button)
-   - **Manual key override**: Specify a different key if auto-detection fails or you want to use a different key
-   - **Delay (seconds)**: How long to wait after entering a system before honking (default: 2.0)
-   - **Hold duration (seconds)**: How long to hold the key press (default: 0.1)
+## How to Use
 
-## How It Works
+### 1\. **Download the Script**
 
-The plugin reads your Elite Dangerous bindings files to find your Primary Fire key binding. In Elite Dangerous, the Primary Fire key is also used for the Discovery Scanner when no weapons are deployed. The plugin looks in these locations:
+Download the `autohonk.py` file from the repository to a location on your computer.
 
-- **Windows**: `%LOCALAPPDATA%\Frontier Developments\Elite Dangerous\Options\Bindings\`
-- **macOS**: `~/Library/Application Support/Frontier Developments/Elite Dangerous/Options/Bindings/`
-- **Linux**: Various Wine prefix locations
+### 2\. **Configuration**
 
-## Usage
+You can customize the script by editing the `CONFIG` dictionary at the top of the `autohonk.py` file.
+```python
+CONFIG = {
+    # IMPORTANT: Change this if you have multiple accounts to ensure the
+    # script targets the correct game instance.
+    "window_title_contains": "Elite - Dangerous (CLIENT)", 
+    
+    # Hold key for x seconds
+    "hold_duration": 6.0,  
+    
+    # Wait x seconds after jump before honking
+    "delay_after_jump": 2.0,  
+    
+    # Auto-detect from bindings (highly recommended)
+    "auto_detect_primary_fire": True,  
+    
+    # Set to a specific key (e.g., 'numpad_add') to override auto-detection
+    "manual_key_override": None,  
+    
+    # Path to your Elite Dangerous journal folder
+    "journal_folder": Path.home() / "Saved Games" / "Frontier Developments" / "Elite Dangerous",
+}
+```
 
-1. Make sure the plugin is enabled in settings
-2. Verify the key binding matches your in-game Discovery Scanner hotkey
-3. Start Elite Dangerous and EDMC
-4. When you jump to a new system, the plugin will automatically trigger your Discovery Scanner after the configured delay
+Most users won't need to change anything unless they use a non-standard key for Primary Fire or want to adjust the timing. The script will automatically try to find your Primary Fire key by looking for a keyboard binding, inspired by Razzafrag/EDCoPilot.
 
-## Troubleshooting
+### 3\. **Run the Script**
 
-### Plugin Not Working
+Simply run the script from your terminal:
 
-- **Check Elite Dangerous is the active window**: The keypress is sent to the currently active window
-- **Verify key binding**: Make sure the key in plugin settings matches your in-game Discovery Scanner binding
-- **Check EDMC logs**: Look for AutoHonk messages in EDMC's log files
-- **Platform-specific issues**:
-  - **Windows**: Ensure you have the `pywin32` package (usually included with EDMC)
-  - **macOS**: The plugin uses AppleScript, which may require accessibility permissions
-  - **Linux**: Requires `xdotool` to be installed (`sudo apt-get install xdotool` on Debian/Ubuntu)
+```sh
+python autohonk.py
+```
 
-### Key Not Recognized
+The script will start monitoring your journal files and print its status to the console. Leave this window open while you play Elite Dangerous.
 
-- Single character keys: Use the actual character (e.g., "1", "a", "x")
-- Special keys: Use lowercase names (e.g., "space", "enter", "f1", "f12")
-- Function keys: Use "f1" through "f12"
+### 4\. **Stop the Script**
 
-### Timing Issues
+To stop the script, go back to the terminal window and press `Ctrl + C`.
 
-- If honking happens too early: Increase the delay
-- If honking happens too late: Decrease the delay
-- If key press isn't registered: Increase the hold duration
+-----
 
-## System Requirements
+## Important Notes
 
-- Elite Dangerous Market Connector (EDMC) version 3.0 or higher
-- Elite Dangerous (PC version only)
-- Python dependencies (usually included with EDMC):
-  - Windows: `pywin32`
-  - macOS: Built-in `subprocess` and `osascript`
-  - Linux: `xdotool` (may need separate installation)
-
-## How It Works
-
-The plugin monitors Elite Dangerous journal entries for:
-- `FSDJump` events (jumping to a new system)
-- `StartUp` and `LoadGame` events (in case jumps are missed)
-
-When a new system is detected, it schedules a keypress using the configured delay and sends the keypress to simulate pressing your Discovery Scanner hotkey.
-
-## Privacy and Security
-
-- The plugin only reads game journal files and sends keypresses
-- No data is transmitted over the internet
-- No personal information is collected or stored
-- All operations are performed locally on your computer
-
-## License
-
-This plugin is provided as-is for educational and convenience purposes. Use at your own risk.
-
-## Support
-
-For issues, questions, or improvements:
-1. Check the troubleshooting section above
-2. Verify your EDMC and Elite Dangerous setup
-3. Check EDMC's log files for error messages
-
-## Version History
-
-- **1.0.0**: Initial release
-  - Basic autohonk functionality
-  - Cross-platform support
-  - Configurable settings
-  - System entry detection via journal monitoring
+  - **Primary Fire Key**: The script defaults to using your Primary Fire key because the Discovery Scanner is typically bound to this. If you have a custom key binding for the scanner, it's recommended to set `auto_detect_primary_fire` to `False` and provide a `manual_key_override`.
+  - **Game Window**: The script needs to bring the Elite Dangerous window to the foreground to send the keypress. This might cause the window to briefly flash or move.
+  - **Troubleshooting**: If the script isn't working, check the console output. It will provide logs for key detection, window finding, and any errors. Ensure the `journal_folder` path is correct and that you've installed all the required libraries.
