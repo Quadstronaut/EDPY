@@ -276,29 +276,45 @@ class AutoHonk:
             return None
 
     def send_keypress(self, key: str, duration: float):
-        """Send keypress to Elite Dangerous window using PyDirectInput."""
+        """
+        MODIFIED: Send keypress to Elite Dangerous window, now with window focusing.
+        """
         try:
-            # Note: PyDirectInput handles sending to the active window automatically
-            # You might still want to bring it to the foreground to be safe
+            logger.info("Attempting to find and focus Elite window...")
             elite_hwnd = self.find_elite_window()
+
             if not elite_hwnd:
+                logger.error("Elite Dangerous window not found. Cannot send keypress.")
                 print("❌ Elite Dangerous window not found - cannot send keypress")
                 return
 
-            # The key names in PyDirectInput are slightly different
+            # --- NEW/CHANGED CODE ---
+            # Bring the window to the foreground before sending input. This is critical.
+            try:
+                win32gui.SetForegroundWindow(elite_hwnd)
+                # Add a small delay to allow Windows to process the focus change
+                time.sleep(0.2)
+                logger.info("Successfully set Elite window to foreground.")
+            except Exception as e:
+                logger.error(f"Could not set window to foreground: {e}")
+                print(f"❌ Could not focus window: {e}")
+                return
+            # --- END OF NEW/CHANGED CODE ---
+
+            logger.info(f"Sending key '{key}' down for {duration} seconds.")
+            print(f"⬇️  Key DOWN: {key} for {duration} seconds...")
+
             pydirectinput.keyDown(key)
-            print("⬇️  Key DOWN: %s" % key)
-
-            # Hold for specified duration
             time.sleep(duration)
-
             pydirectinput.keyUp(key)
-            print("⬆️  Key UP: %s" % key)
+
+            logger.info("Keypress sequence complete.")
+            print(f"⬆️  Key UP: {key}")
             print("✅ Keypress complete!")
 
         except Exception as e:
-            print("❌ Error sending keypress: %s" % e)
-            logger.error("Keypress error: %s", e)
+            logger.error(f"An error occurred during send_keypress: {e}")
+            print(f"❌ Error sending keypress: {e}")
 
 
     def process_journal_entry(self, entry: dict):
