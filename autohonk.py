@@ -272,60 +272,59 @@ class AutoHonk:
         else:
             return None
 
+    def send_keypress(self, key: str, duration: float):
+        """Send keypress to Elite Dangerous window using SendInput."""
+        try:
+            elite_hwnd = self.find_elite_window()
+            if not elite_hwnd:
+                print("❌ Elite Dangerous window not found - cannot send keypress")
+                return
 
-def send_keypress(self, key: str, duration: float):
-    """Send keypress to Elite Dangerous window using SendInput."""
-    try:
-        elite_hwnd = self.find_elite_window()
-        if not elite_hwnd:
-            print("❌ Elite Dangerous window not found - cannot send keypress")
-            return
+            vk_code = self.get_virtual_key_code(key)
+            if vk_code is None:
+                print(f"❌ Unknown key: {key}")
+                return
 
-        vk_code = self.get_virtual_key_code(key)
-        if vk_code is None:
-            print(f"❌ Unknown key: {key}")
-            return
+            print(
+                f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds..."
+            )
 
-        print(
-            f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds..."
-        )
+            # Bring window to foreground
+            win32gui.SetForegroundWindow(elite_hwnd)
+            time.sleep(0.2)  # Brief delay to ensure focus
 
-        # Bring window to foreground
-        win32gui.SetForegroundWindow(elite_hwnd)
-        time.sleep(0.2)  # Brief delay to ensure focus
+            # Create input structures for key down and key up
+            # Key Down
+            down_input = Input(
+                type=win32con.INPUT_KEYBOARD,
+                ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=0)),
+            )
 
-        # Create input structures for key down and key up
-        # Key Down
-        down_input = Input(
-            type=win32con.INPUT_KEYBOARD,
-            ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=0)),
-        )
+            # Key Up
+            up_input = Input(
+                type=win32con.INPUT_KEYBOARD,
+                ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=win32con.KEYEVENTF_KEYUP)),
+            )
 
-        # Key Up
-        up_input = Input(
-            type=win32con.INPUT_KEYBOARD,
-            ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=win32con.KEYEVENTF_KEYUP)),
-        )
+            # Send key down
+            ctypes.windll.user32.SendInput(
+                1, ctypes.byref(down_input), ctypes.sizeof(down_input)
+            )
+            print(f"⬇️  Key DOWN: {key}")
 
-        # Send key down
-        ctypes.windll.user32.SendInput(
-            1, ctypes.byref(down_input), ctypes.sizeof(down_input)
-        )
-        print(f"⬇️  Key DOWN: {key}")
+            # Hold for specified duration
+            time.sleep(duration)
 
-        # Hold for specified duration
-        time.sleep(duration)
+            # Send key up
+            ctypes.windll.user32.SendInput(
+                1, ctypes.byref(up_input), ctypes.sizeof(up_input)
+            )
+            print(f"⬆️  Key UP: {key}")
+            print(f"✅ Keypress complete!")
 
-        # Send key up
-        ctypes.windll.user32.SendInput(
-            1, ctypes.byref(up_input), ctypes.sizeof(up_input)
-        )
-        print(f"⬆️  Key UP: {key}")
-        print(f"✅ Keypress complete!")
-
-    except Exception as e:
-        print(f"❌ Error sending keypress: {e}")
-        logger.error("Keypress error: %s", e)
+        except Exception as e:
+            print(f"❌ Error sending keypress: {e}")
+            logger.error("Keypress error: %s", e)
 
     def process_journal_entry(self, entry: dict):
         """Process a journal entry and trigger honk if needed."""
