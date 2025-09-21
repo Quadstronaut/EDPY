@@ -10,7 +10,7 @@ import win32con
 import win32api
 
 # --- Configuration ---
-WINDOW_TITLE_CONTAINS = "Elite Dangerous"  # Use a general title for testing
+WINDOW_TITLE_CONTAINS = "Elite - Dangerous (CLIENT)"  # Use a general title for testing
 TARGET_KEY_PYDIRECTINPUT = 'add'          # Key name for pydirectinput/pyautogui ('+' is often mapped to 'add' for numpad)
 TARGET_KEY_WIN32 = win32con.VK_ADD        # Virtual-Key code for Numpad +
 HOLD_DURATION_S = 6.0
