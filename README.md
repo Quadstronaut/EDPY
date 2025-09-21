@@ -1,34 +1,33 @@
-### `Elite Dangerous` Automation Scripts
+### Ship Systems Automation Suite: Repurposed & Enhanced
 
-This repository contains a collection of Python scripts designed to automate various tasks in the game **Elite Dangerous**. Each script is standalone and focuses on a specific function, from monitoring in-game prices to automating common actions.
+This repository contains a collection of repurposed modules and enhancements for starships operating within the **Pilots Federation**. Each component is a self-contained firmware patch, focusing on optimizing efficiency and automating mundane operational tasks. These upgrades leverage existing, often underutilized, ship systems by deploying proprietary subroutines, turning standard hardware into powerful assets.
 
----
+***
 
-### AutoHonk 📣
+### Guardian Full Spectrum Scanner: autohonk.py 📣
 
-The `autohonk.py` script is a standalone tool that automatically activates your ship's discovery scanner ("honk") after every hyperspace jump. This is an essential time-saver for explorers who want to quickly scan new systems for astronomical bodies without manually pressing the key each time.
+This firmware patch unlocks an undocumented diagnostic subroutine in your ship's FSD. It redirects the FSD's frameshift resonance emitter output to automatically release a low-power pulse upon exiting hyperspace. Capturing this pulse via this path implements something resembling automation and eliminates the need for manual activation of the ship's Discovery Scanner, ensuring no celestial body remains un-pinged during your exploration voyages.
 
-**How it works:**
-* **Journal Monitoring**: The script uses the `watchdog` library to monitor your Elite Dangerous player journal files in real-time.
-* **Event Detection**: It listens for the `FSDJump` event in the journal, which signifies a successful jump to a new star system.
-* **Keypress Simulation**: After a jump is detected, the script waits for a configurable delay and then uses `pydirectinput` to simulate a keypress for your ship's "Primary Fire" button, which is typically bound to the discovery scanner.
-* **Window Management**: The script automatically finds and focuses the Elite Dangerous game window to ensure the keypress is sent to the correct application.
-* **Bindings Detection**: It can automatically detect your "Primary Fire" key binding from your game's settings, eliminating the need for manual configuration.
+**Operational Parameters:**
+* **Journal Decompiler**: The patch installs a low-level monitor that decompiles FSD telemetry logs in real-time, listening for the **`FSDJump`** event signature.
+* **Resonance Deployment**: Once a successful jump is confirmed, a brief power-down and reboot of the FSD resonance emitter is initiated, followed by a simulated primary capacitor discharge to trigger the pulse.
+* **System Lockout Override**: The patch temporarily overrides the primary flight systems' keybinds, rerouting the "Primary Fire" command to the FSD's diagnostic port, guaranteeing the pulse is sent to the correct system.
+* **Holistic Bindings Check**: The patch automatically queries your ship's local systems manifest to identify and verify the appropriate "Primary Fire" routing before each deployment.
 
----
+***
 
-### Debug_Inputs 🩺
+### Technician System Diagnostics: debug_inputs.py 🩺
 
-The `debug_inputs.py` script is a utility for diagnosing and testing various methods of simulating keyboard input on Windows. This script was created to help troubleshoot issues with the `AutoHonk` script and can be useful for anyone developing tools that require sending keypresses to games. It tests four different input methods and provides feedback on whether the keypress was successfully registered.
+The **Technician System Diagnostics** tool is a proprietary testing suite for verifying I/O signal integrity across various internal ship systems. It was designed to troubleshoot and validate the low-level signal injections used by black market patches and third party module integrations. It cycles through four different signal protocols, providing real-time feedback on successful data transmission.
 
----
+***
 
-### Wine Price Scraper 🍇
+### Rackham Alcoholic Anonymous Monitor: rackham_wine.py 🍇
 
-This cron-scheduled Python script, `rackham_wine.py`, monitors the in-game price of **Wine** at the Rackham's Peak starport. It uses **Selenium** to scrape data from `inara.cz`, a third-party Elite Dangerous database, and sends a notification to a **Discord** channel via a webhook if the price exceeds a specific threshold. This is particularly useful for traders looking to capitalize on high-profit trading opportunities.
+The **Rackham AA Monitor** is a remote-access standalone module that monitors the volatile market at **Rackham's Peak**. It uses a low-power, distributed computing array to scrape market data from third-party pilot databases and sends an encrypted comms burst to your personal datapad via a secure Discord channel when the price of Wine surges past a profitable threshold. The system is designed to run silently in the background thanks to cron. This module is accompanied by a hosting requirement.
 
-**How it works:**
-* **Web Scraping**: `selenium` is used to fetch the current price of Wine from a specific station's market page on `inara.cz`.
-* **Price History**: The script maintains a local JSON file (`wine_price_history.json`) to track price changes over time.
-* **Discord Notifications**: A message is sent to a configurable Discord webhook when the price of Wine surpasses a set threshold (e.g., 250,000 Cr.), ensuring you never miss a profitable trade.
-* **Cron Job**: The `wrapper_rackham_wine.sh` script is designed to run the Python script as a scheduled task. It uses `xvfb-run` to provide a virtual display environment, which is necessary for Selenium to run correctly in a `crontab` context.
+**Operational Parameters:**
+* **Data Scavenging**: It deploys a `selenium` web agent to scavenge price data from a specified station on external pilot network databases like `inara.cz`.
+* **Historical Record**: The module maintains a local log (`wine_price_history.json`) of all price fluctuations, allowing it to predict future market trends.
+* **Comms Burst**: A secure comms burst is sent to a pre-configured webhook on your personal datapad when the price of Wine exceeds a set threshold (e.g., 250,000 Cr.), ensuring you are notified of high-profit trading opportunities.
+* **Scheduled Deployment**: The `wrapper_rackham_wine.sh` script is a boot-time executable that deploys the main module as a scheduled background task. It uses `xvfb-run` to create a virtual, headless operating environment, necessary for the secure data-scavenging agent to run correctly within a timed-deployment routine.
