@@ -1,6 +1,6 @@
 """
 Elite Dangerous AutoHonk - Standalone Script
-Monitors Elite Dangerous journal files and auto-presses your Primary Fire key when jumping to new systems.
+Monitors Odyssey journal files and fires.
 
 Requirements:
 - pip install pywin32 watchdog
@@ -29,8 +29,8 @@ from watchdog.events import FileSystemEventHandler
 
 # Configuration
 CONFIG = {
-    'window_title_contains': 'CMDRDuvrazh',  # Part of Elite window title to look for
-    'hold_duration': 6.0,  # Hold key for 6 seconds as requested
+    'window_title_contains': '(CLIENT)',  # Part of Elite window title to look for
+    'hold_duration': 6.0,  # Hold key for x seconds as requested
     'delay_after_jump': 2.0,  # Wait 2 seconds after jump before honking
     'auto_detect_primary_fire': True,  # Auto-detect from bindings
     'manual_key_override': None,  # Set to specific key if needed (e.g., 'numpad_add')
@@ -54,10 +54,10 @@ class AutoHonk:
         self.primary_fire_key = None
         self.elite_hwnd = None
         self.running = True
-        
+
         # Detect primary fire key on startup
         self.detect_primary_fire_key()
-        
+
         print("=" * 60)
         print("Elite Dangerous AutoHonk - Standalone")
         print("=" * 60)
@@ -67,7 +67,7 @@ class AutoHonk:
         print(f"Key hold duration: {CONFIG['hold_duration']} seconds")
         print("Waiting for FSD jumps...")
         print("-" * 60)
-    
+
     def detect_primary_fire_key(self):
         """Detect Primary Fire key from Elite Dangerous bindings."""
         try:
@@ -188,41 +188,85 @@ class AutoHonk:
             return None
     
     def send_keypress(self, key: str, duration: float):
-        """Send keypress to Elite Dangerous window."""
-        try:
-            # Find Elite window
-            elite_hwnd = self.find_elite_window()
-            if not elite_hwnd:
-                print("❌ Elite Dangerous window not found - cannot send keypress")
-                return
-            
-            # Get virtual key code
-            vk_code = self.get_virtual_key_code(key)
-            if vk_code is None:
-                print(f"❌ Unknown key: {key}")
-                return
-            
-            print(f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds...")
-            
-            # Bring window to foreground
-            win32gui.SetForegroundWindow(elite_hwnd)
-            time.sleep(0.2)  # Brief delay to ensure focus
-            
-            # Send key down
-            win32api.keybd_event(vk_code, 0, 0, 0)
-            print(f"⬇️  Key DOWN: {key}")
-            
-            # Hold for specified duration
-            time.sleep(duration)
-            
-            # Send key up
-            win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
-            print(f"⬆️  Key UP: {key}")
-            print(f"✅ Keypress complete!")
-            
-        except Exception as e:
-            print(f"❌ Error sending keypress: {e}")
-            logger.error(f"Keypress error: {e}")
+# Constants for SendInput
+PUL = ctypes.POINTER(ctypes.c_ulong)
+class KeyBdInput(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", PUL)]
+
+class HardwareInput(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_ulong),
+                ("wParamL", ctypes.c_ulong),
+                ("wParamH", ctypes.c_ulong)]
+
+class MouseInput(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long),
+                ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", PUL)]
+
+class Input_I(ctypes.Union):
+    _fields_ = [("ki", KeyBdInput),
+                ("mi", MouseInput),
+                ("hi", HardwareInput)]
+
+class Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong),
+                ("ii", Input_I)]
+
+# Additional Windows API imports
+import ctypes
+import ctypes.wintypes
+
+# Update the send_keypress function
+def send_keypress(self, key: str, duration: float):
+    """Send keypress to Elite Dangerous window using SendInput."""
+    try:
+        elite_hwnd = self.find_elite_window()
+        if not elite_hwnd:
+            print("❌ Elite Dangerous window not found - cannot send keypress")
+            return
+
+        vk_code = self.get_virtual_key_code(key)
+        if vk_code is None:
+            print(f"❌ Unknown key: {key}")
+            return
+
+        print(f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds...")
+
+        # Bring window to foreground
+        win32gui.SetForegroundWindow(elite_hwnd)
+        time.sleep(0.2)  # Brief delay to ensure focus
+
+        # Create input structures for key down and key up
+        # Key Down
+        down_input = Input(type=win32con.INPUT_KEYBOARD,
+                           ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=0)))
+
+        # Key Up
+        up_input = Input(type=win32con.INPUT_KEYBOARD,
+                         ii=Input_I(ki=KeyBdInput(wVk=vk_code, dwFlags=win32con.KEYEVENTF_KEYUP)))
+
+        # Send key down
+        ctypes.windll.user32.SendInput(1, ctypes.byref(down_input), ctypes.sizeof(down_input))
+        print(f"⬇️  Key DOWN: {key}")
+
+        # Hold for specified duration
+        time.sleep(duration)
+
+        # Send key up
+        ctypes.windll.user32.SendInput(1, ctypes.byref(up_input), ctypes.sizeof(up_input))
+        print(f"⬆️  Key UP: {key}")
+        print(f"✅ Keypress complete!")
+
+    except Exception as e:
+        print(f"❌ Error sending keypress: {e}")
+        logger.error(f"Keypress error: {e}")
     
     def process_journal_entry(self, entry: dict):
         """Process a journal entry and trigger honk if needed."""
