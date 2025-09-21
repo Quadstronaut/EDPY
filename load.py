@@ -68,6 +68,8 @@ def plugin_start3(plugin_dir: str) -> str:
     global enabled_var, key_var, delay_var, hold_var, auto_detect_var, detected_primary_fire_key, window_title_var
     
     logger.info(f"AutoHonk Plugin {plugin_version} starting")
+    logger.info(f"Plugin directory: {plugin_dir}")
+    logger.info(f"Python platform: {sys.platform}")
     
     # Initialize tkinter variables for settings
     enabled_var = tk.BooleanVar(value=config['enabled'])
@@ -78,11 +80,15 @@ def plugin_start3(plugin_dir: str) -> str:
     window_title_var = tk.StringVar(value=config['window_title'])
     
     # Try to detect the primary fire key from Elite Dangerous bindings
-    detected_primary_fire_key = detect_primary_fire_key()
-    if detected_primary_fire_key:
-        logger.info(f"Detected primary fire key: {detected_primary_fire_key}")
-    else:
-        logger.warning("Could not detect primary fire key from bindings")
+    try:
+        detected_primary_fire_key = detect_primary_fire_key()
+        if detected_primary_fire_key:
+            logger.info(f"Detected primary fire key: {detected_primary_fire_key}")
+        else:
+            logger.warning("Could not detect primary fire key from bindings")
+    except Exception as e:
+        logger.error(f"Error detecting primary fire key: {e}")
+        detected_primary_fire_key = None
     
     return plugin_name
 
@@ -319,20 +325,38 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: Di
     """
     global current_system
     
+    # Debug logging
+    event_type = entry.get('event', 'Unknown')
+    logger.debug(f"Journal entry: {event_type}")
+    
     if not config['enabled']:
+        logger.debug("AutoHonk disabled, ignoring journal entry")
         return
     
     # Check for FSDJump event (entering a new system)
     if entry.get('event') == 'FSDJump':
         new_system = entry.get('StarSystem')
+        logger.info(f"FSDJump detected to system: {new_system}")
+        
         if new_system and new_system != current_system:
-            logger.info(f"Entered new system: {new_system}")
+            logger.info(f"Entered new system: {new_system} (previous: {current_system})")
             current_system = new_system
+            
+            # Determine which key to use
+            actual_key = config['key_to_press']
+            if config['auto_detect_key'] and detected_primary_fire_key:
+                actual_key = detected_primary_fire_key
+            elif config['key_to_press'] == 'auto' and detected_primary_fire_key:
+                actual_key = detected_primary_fire_key
+            elif config['key_to_press'] == 'auto':
+                actual_key = '1'  # Fallback default
+            
+            logger.info(f"Scheduling honk with key: {actual_key}, delay: {config['delay_seconds']}s")
             
             # Schedule the honk with a delay
             threading.Thread(
                 target=delayed_honk,
-                args=(config['delay_seconds'], config['key_to_press'], config['hold_duration']),
+                args=(config['delay_seconds'], actual_key, config['hold_duration']),
                 daemon=True
             ).start()
     
@@ -341,6 +365,13 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: Di
         if system and system != current_system:
             current_system = system
             logger.info(f"System on startup/load: {system}")
+    
+    # Handle Location event (when already in a system)
+    elif entry.get('event') == 'Location':
+        location_system = entry.get('StarSystem')
+        if location_system:
+            current_system = location_system
+            logger.info(f"Location event - current system: {location_system}")
 
 def delayed_honk(delay: float, key: str, hold_duration: float) -> None:
     """
@@ -403,12 +434,14 @@ def find_elite_window() -> Optional[int]:
     """
     try:
         window_title = config.get('window_title', 'Elite - Dangerous (CLIENT)')
+        logger.info(f"Looking for window with title containing: {window_title}")
         
         def enum_windows_callback(hwnd, windows):
             if win32gui.IsWindowVisible(hwnd):
                 title = win32gui.GetWindowText(hwnd)
-                if window_title.lower() in title.lower():
-                    windows.append(hwnd)
+                if title and window_title.lower() in title.lower():
+                    logger.info(f"Found potential window: '{title}' (hwnd: {hwnd})")
+                    windows.append((hwnd, title))
             return True
         
         windows = []
@@ -416,10 +449,22 @@ def find_elite_window() -> Optional[int]:
         
         if windows:
             # Return the first matching window
-            logger.info(f"Found Elite Dangerous window: {win32gui.GetWindowText(windows[0])}")
-            return windows[0]
+            hwnd, title = windows[0]
+            logger.info(f"Selected Elite Dangerous window: '{title}' (hwnd: {hwnd})")
+            return hwnd
         else:
-            logger.warning(f"Elite Dangerous window not found with title containing: {window_title}")
+            logger.warning(f"Elite Dangerous window not found with title containing: '{window_title}'")
+            
+            # Debug: List all visible windows
+            logger.info("Listing all visible windows:")
+            def debug_enum_callback(hwnd, _):
+                if win32gui.IsWindowVisible(hwnd):
+                    title = win32gui.GetWindowText(hwnd)
+                    if title:  # Only log windows with titles
+                        logger.info(f"  Window: '{title}' (hwnd: {hwnd})")
+                return True
+            
+            win32gui.EnumWindows(debug_enum_callback, None)
             return None
             
     except Exception as e:
@@ -428,16 +473,10 @@ def find_elite_window() -> Optional[int]:
 
 def send_keypress_windows(key: str, hold_duration: float) -> None:
     """Send keypress on Windows to Elite Dangerous window."""
+    logger.info(f"Attempting to send keypress: {key} (hold: {hold_duration}s)")
+    
     # Find Elite Dangerous window
     elite_hwnd = find_elite_window()
-    
-    if elite_hwnd:
-        # Bring Elite Dangerous to foreground (optional, can be disabled)
-        try:
-            win32gui.SetForegroundWindow(elite_hwnd)
-            time.sleep(0.1)  # Small delay to ensure window is focused
-        except Exception as e:
-            logger.warning(f"Could not set Elite Dangerous as foreground window: {e}")
     
     # Get the virtual key code
     vk_code = ord(key.upper()) if len(key) == 1 else get_windows_vk_code(key)
@@ -446,39 +485,61 @@ def send_keypress_windows(key: str, hold_duration: float) -> None:
         logger.error(f"Unknown key: {key}")
         return
     
+    logger.info(f"Using virtual key code: {vk_code} for key: {key}")
+    
     if elite_hwnd:
+        logger.info(f"Found Elite window: {elite_hwnd}")
+        try:
+            # Try to bring Elite Dangerous to foreground
+            win32gui.SetForegroundWindow(elite_hwnd)
+            time.sleep(0.2)  # Longer delay to ensure window is focused
+            logger.info("Set Elite window as foreground")
+        except Exception as e:
+            logger.warning(f"Could not set Elite Dangerous as foreground window: {e}")
+        
         # Send key to specific window using PostMessage
         WM_KEYDOWN = 0x0100
         WM_KEYUP = 0x0101
         
         try:
             # Send key down
-            win32gui.PostMessage(elite_hwnd, WM_KEYDOWN, vk_code, 0)
+            result1 = win32gui.PostMessage(elite_hwnd, WM_KEYDOWN, vk_code, 0)
+            logger.info(f"PostMessage keydown result: {result1}")
             time.sleep(hold_duration)
             # Send key up
-            win32gui.PostMessage(elite_hwnd, WM_KEYUP, vk_code, 0)
+            result2 = win32gui.PostMessage(elite_hwnd, WM_KEYUP, vk_code, 0)
+            logger.info(f"PostMessage keyup result: {result2}")
             logger.info(f"Sent keypress {key} to Elite Dangerous window")
         except Exception as e:
             logger.error(f"Failed to send message to Elite window: {e}")
             # Fallback to global keypress
+            logger.info("Falling back to global keypress")
             send_global_keypress_windows(key, hold_duration)
     else:
         # Fallback to global keypress if window not found
+        logger.warning("Elite window not found, using global keypress")
         send_global_keypress_windows(key, hold_duration)
 
 def send_global_keypress_windows(key: str, hold_duration: float) -> None:
     """Send global keypress on Windows using win32api."""
+    logger.info(f"Sending global keypress: {key}")
+    
     vk_code = ord(key.upper()) if len(key) == 1 else get_windows_vk_code(key)
     
     if vk_code is None:
-        logger.error(f"Unknown key: {key}")
+        logger.error(f"Unknown key for global press: {key}")
         return
     
-    # Send key down
-    win32api.keybd_event(vk_code, 0, 0, 0)
-    time.sleep(hold_duration)
-    # Send key up
-    win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+    try:
+        # Send key down
+        win32api.keybd_event(vk_code, 0, 0, 0)
+        logger.info(f"Global keydown sent for: {key}")
+        time.sleep(hold_duration)
+        # Send key up
+        win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+        logger.info(f"Global keyup sent for: {key}")
+    except Exception as e:
+        logger.error(f"Failed to send global keypress: {e}")
 
 def get_windows_vk_code(key: str) -> Optional[int]:
     """
@@ -523,13 +584,29 @@ def get_elite_bindings_paths() -> list:
     """
     paths = []
     
-    # Windows paths
+    # Standard Windows path
     local_appdata = os.environ.get('LOCALAPPDATA')
     if local_appdata:
         bindings_dir = Path(local_appdata) / "Frontier Developments" / "Elite Dangerous" / "Options" / "Bindings"
+        logger.info(f"Checking bindings directory: {bindings_dir}")
         if bindings_dir.exists():
             # Look for .binds files
-            paths.extend(glob.glob(str(bindings_dir / "*.binds")))
+            binds_files = glob.glob(str(bindings_dir / "*.binds"))
+            logger.info(f"Found {len(binds_files)} .binds files")
+            paths.extend(binds_files)
+        else:
+            logger.warning(f"Bindings directory does not exist: {bindings_dir}")
+    
+    # Check for Sandboxie or other virtualized paths
+    # Sandboxie typically redirects to a sandbox-specific location
+    try:
+        import winreg
+        # Try to find Elite Dangerous install location from registry
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{696F8871-C91D-4CB1-825D-36BE18065575}_is1") as key:
+            install_location = winreg.QueryValueEx(key, "InstallLocation")[0]
+            logger.info(f"Found Elite install location: {install_location}")
+    except Exception as e:
+        logger.debug(f"Could not find Elite install location from registry: {e}")
     
     return paths
 
