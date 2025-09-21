@@ -65,36 +65,88 @@ def plugin_start3(plugin_dir: str) -> str:
     Returns:
         Plugin name or error message
     """
-    global enabled_var, key_var, delay_var, hold_var, auto_detect_var, detected_primary_fire_key, window_title_var
-    
-    logger.info(f"AutoHonk Plugin {plugin_version} starting")
-    logger.info(f"Plugin directory: {plugin_dir}")
-    logger.info(f"Python platform: {sys.platform}")
-    
-    # Initialize tkinter variables for settings
-    enabled_var = tk.BooleanVar(value=config['enabled'])
-    key_var = tk.StringVar(value=config['key_to_press'])
-    delay_var = tk.DoubleVar(value=config['delay_seconds'])
-    hold_var = tk.DoubleVar(value=config['hold_duration'])
-    auto_detect_var = tk.BooleanVar(value=config['auto_detect_key'])
-    window_title_var = tk.StringVar(value=config['window_title'])
-    
-    # Try to detect the primary fire key from Elite Dangerous bindings
     try:
-        detected_primary_fire_key = detect_primary_fire_key()
-        if detected_primary_fire_key:
-            logger.info(f"Detected primary fire key: {detected_primary_fire_key}")
-        else:
-            logger.warning("Could not detect primary fire key from bindings")
+        global enabled_var, key_var, delay_var, hold_var, auto_detect_var, detected_primary_fire_key, window_title_var
+        
+        logger.info(f"AutoHonk Plugin {plugin_version} starting")
+        logger.info(f"Plugin directory: {plugin_dir}")
+        logger.info(f"Python platform: {sys.platform}")
+        
+        # Test win32 import
+        try:
+            import win32api
+            import win32gui
+            logger.info("win32 modules imported successfully")
+        except ImportError as e:
+            logger.error(f"Failed to import win32 modules: {e}")
+            return f"{plugin_name} - Error: Missing win32 modules"
+        
+        # Initialize tkinter variables for settings
+        try:
+            enabled_var = tk.BooleanVar(value=config['enabled'])
+            key_var = tk.StringVar(value=config['key_to_press'])
+            delay_var = tk.DoubleVar(value=config['delay_seconds'])
+            hold_var = tk.DoubleVar(value=config['hold_duration'])
+            auto_detect_var = tk.BooleanVar(value=config['auto_detect_key'])
+            window_title_var = tk.StringVar(value=config['window_title'])
+            logger.info("Tkinter variables initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize tkinter variables: {e}")
+            return f"{plugin_name} - Error: Tkinter init failed"
+        
+        # Try to detect the primary fire key from Elite Dangerous bindings
+        try:
+            detected_primary_fire_key = detect_primary_fire_key()
+            if detected_primary_fire_key:
+                logger.info(f"Detected primary fire key: {detected_primary_fire_key}")
+            else:
+                logger.warning("Could not detect primary fire key from bindings")
+        except Exception as e:
+            logger.error(f"Error detecting primary fire key: {e}")
+            detected_primary_fire_key = None
+        
+        logger.info(f"AutoHonk Plugin {plugin_version} started successfully")
+        return plugin_name
+        
     except Exception as e:
-        logger.error(f"Error detecting primary fire key: {e}")
-        detected_primary_fire_key = None
-    
-    return plugin_name
+        logger.error(f"Critical error in plugin_start3: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return f"{plugin_name} - Critical Error"
 
 def plugin_stop() -> None:
     """Stop the plugin."""
     logger.info("AutoHonk Plugin stopping")
+
+def initialize_variables():
+    """Initialize tkinter variables if they haven't been initialized yet."""
+    global enabled_var, key_var, delay_var, hold_var, auto_detect_var, window_title_var
+    
+    try:
+        if enabled_var is None:
+            enabled_var = tk.BooleanVar(value=config['enabled'])
+        if key_var is None:
+            key_var = tk.StringVar(value=config['key_to_press'])
+        if delay_var is None:
+            delay_var = tk.DoubleVar(value=config['delay_seconds'])
+        if hold_var is None:
+            hold_var = tk.DoubleVar(value=config['hold_duration'])
+        if auto_detect_var is None:
+            auto_detect_var = tk.BooleanVar(value=config['auto_detect_key'])
+        if window_title_var is None:
+            window_title_var = tk.StringVar(value=config['window_title'])
+        
+        logger.info("Variables initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Error initializing variables: {e}")
+        # Create default variables
+        enabled_var = tk.BooleanVar(value=True)
+        key_var = tk.StringVar(value='auto')
+        delay_var = tk.DoubleVar(value=2.0)
+        hold_var = tk.DoubleVar(value=0.1)
+        auto_detect_var = tk.BooleanVar(value=True)
+        window_title_var = tk.StringVar(value='Elite - Dangerous (CLIENT)')
 
 def plugin_app(parent: tk.Frame) -> tk.Frame:
     """
@@ -144,118 +196,135 @@ def plugin_prefs(parent: tk.Tk, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
     """
     global detected_key_label
     
-    frame = tk.Frame(parent)
-    frame.columnconfigure(1, weight=1)
-    
-    # Enabled checkbox
-    row = 0
-    tk.Checkbutton(
-        frame,
-        text="Enable AutoHonk",
-        variable=enabled_var
-    ).grid(row=row, column=0, columnspan=2, sticky="w")
-    
-    # Auto-detect key checkbox
-    row += 1
-    auto_detect_cb = tk.Checkbutton(
-        frame,
-        text="Auto-detect Primary Fire key from Elite Dangerous bindings",
-        variable=auto_detect_var,
-        command=on_auto_detect_changed
-    )
-    auto_detect_cb.grid(row=row, column=0, columnspan=2, sticky="w")
-    
-    # Detected key display
-    row += 1
-    detected_key_frame = tk.Frame(frame)
-    detected_key_frame.grid(row=row, column=0, columnspan=2, sticky="w", pady=(5, 0))
-    
-    tk.Label(detected_key_frame, text="Detected key:").pack(side="left")
-    detected_key_label = tk.Label(
-        detected_key_frame, 
-        text=detected_primary_fire_key or "Not found",
-        fg="green" if detected_primary_fire_key else "red"
-    )
-    detected_key_label.pack(side="left", padx=(5, 0))
-    
-    refresh_btn = tk.Button(
-        detected_key_frame,
-        text="Refresh",
-        command=refresh_detected_key
-    )
-    refresh_btn.pack(side="left", padx=(10, 0))
-    
-    # Manual key entry
-    row += 1
-    key_frame = tk.Frame(frame)
-    key_frame.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
-    
-    tk.Label(key_frame, text="Manual key override:").pack(side="left")
-    key_entry = tk.Entry(key_frame, textvariable=key_var, width=10)
-    key_entry.pack(side="left", padx=(10, 0))
-    
-    # Delay
-    row += 1
-    tk.Label(frame, text="Delay (seconds):").grid(row=row, column=0, sticky="w")
-    delay_spinbox = tk.Spinbox(
-        frame, 
-        from_=0.1, 
-        to=10.0, 
-        increment=0.1, 
-        textvariable=delay_var, 
-        width=10,
-        format="%.1f"
-    )
-    delay_spinbox.grid(row=row, column=1, sticky="w", padx=(10, 0))
-    
-    # Hold duration
-    row += 1
-    tk.Label(frame, text="Hold duration (seconds):").grid(row=row, column=0, sticky="w")
-    hold_spinbox = tk.Spinbox(
-        frame, 
-        from_=0.05, 
-        to=2.0, 
-        increment=0.05, 
-        textvariable=hold_var, 
-        width=10,
-        format="%.2f"
-    )
-    hold_spinbox.grid(row=row, column=1, sticky="w", padx=(10, 0))
-    
-    # Window title
-    row += 1
-    tk.Label(frame, text="Elite Dangerous window title:").grid(row=row, column=0, sticky="w")
-    window_title_entry = tk.Entry(frame, textvariable=window_title_var, width=30)
-    window_title_entry.grid(row=row, column=1, sticky="w", padx=(10, 0))
-    
-    # Window title help
-    row += 1
-    window_help = tk.Label(
-        frame,
-        text="Common titles: 'Elite - Dangerous (CLIENT)', 'Elite - Dangerous (ALPHA)', etc.\n"
-             "For multiboxing, use specific window titles or partial matches.",
-        wraplength=500,
-        justify="left",
-        fg="gray"
-    )
-    window_help.grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 5))
-    
-    # Help text
-    row += 1
-    help_text = tk.Label(
-        frame,
-        text="AutoHonk will use your Primary Fire key when auto-detect is enabled.\n"
-             "Otherwise, specify a manual key override. Common keys: space, 1, 2, f1, etc.\n"
-             "The key will be pressed when entering a new system to trigger Discovery Scanner.",
-        wraplength=500,
-        justify="left"
-    )
-    help_text.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
-    
-    # Update initial state
-    on_auto_detect_changed()
-    
-    return frame
+    try:
+        frame = tk.Frame(parent)
+        frame.columnconfigure(1, weight=1)
+        
+        # Check if variables are initialized, if not, initialize them
+        if enabled_var is None:
+            logger.warning("Variables not initialized in plugin_prefs, initializing now")
+            initialize_variables()
+        
+        # Enabled checkbox
+        row = 0
+        tk.Checkbutton(
+            frame,
+            text="Enable AutoHonk",
+            variable=enabled_var
+        ).grid(row=row, column=0, columnspan=2, sticky="w")
+        
+        # Auto-detect key checkbox
+        row += 1
+        auto_detect_cb = tk.Checkbutton(
+            frame,
+            text="Auto-detect Primary Fire key from Elite Dangerous bindings",
+            variable=auto_detect_var,
+            command=on_auto_detect_changed
+        )
+        auto_detect_cb.grid(row=row, column=0, columnspan=2, sticky="w")
+        
+        # Detected key display
+        row += 1
+        detected_key_frame = tk.Frame(frame)
+        detected_key_frame.grid(row=row, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        
+        tk.Label(detected_key_frame, text="Detected key:").pack(side="left")
+        detected_key_label = tk.Label(
+            detected_key_frame, 
+            text=detected_primary_fire_key or "Not found",
+            fg="green" if detected_primary_fire_key else "red"
+        )
+        detected_key_label.pack(side="left", padx=(5, 0))
+        
+        refresh_btn = tk.Button(
+            detected_key_frame,
+            text="Refresh",
+            command=refresh_detected_key
+        )
+        refresh_btn.pack(side="left", padx=(10, 0))
+        
+        # Manual key entry
+        row += 1
+        key_frame = tk.Frame(frame)
+        key_frame.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        
+        tk.Label(key_frame, text="Manual key override:").pack(side="left")
+        key_entry = tk.Entry(key_frame, textvariable=key_var, width=10)
+        key_entry.pack(side="left", padx=(10, 0))
+        
+        # Delay
+        row += 1
+        tk.Label(frame, text="Delay (seconds):").grid(row=row, column=0, sticky="w")
+        delay_spinbox = tk.Spinbox(
+            frame, 
+            from_=0.1, 
+            to=10.0, 
+            increment=0.1, 
+            textvariable=delay_var, 
+            width=10,
+            format="%.1f"
+        )
+        delay_spinbox.grid(row=row, column=1, sticky="w", padx=(10, 0))
+        
+        # Hold duration
+        row += 1
+        tk.Label(frame, text="Hold duration (seconds):").grid(row=row, column=0, sticky="w")
+        hold_spinbox = tk.Spinbox(
+            frame, 
+            from_=0.05, 
+            to=2.0, 
+            increment=0.05, 
+            textvariable=hold_var, 
+            width=10,
+            format="%.2f"
+        )
+        hold_spinbox.grid(row=row, column=1, sticky="w", padx=(10, 0))
+        
+        # Window title
+        row += 1
+        tk.Label(frame, text="Elite Dangerous window title:").grid(row=row, column=0, sticky="w")
+        window_title_entry = tk.Entry(frame, textvariable=window_title_var, width=30)
+        window_title_entry.grid(row=row, column=1, sticky="w", padx=(10, 0))
+        
+        # Window title help
+        row += 1
+        window_help = tk.Label(
+            frame,
+            text="Common titles: 'Elite - Dangerous (CLIENT)', 'Elite - Dangerous (ALPHA)', etc.\n"
+                 "For multiboxing, use specific window titles or partial matches.",
+            wraplength=500,
+            justify="left",
+            fg="gray"
+        )
+        window_help.grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 5))
+        
+        # Help text
+        row += 1
+        help_text = tk.Label(
+            frame,
+            text="AutoHonk will use your Primary Fire key when auto-detect is enabled.\n"
+                 "Otherwise, specify a manual key override. Common keys: space, 1, 2, f1, etc.\n"
+                 "The key will be pressed when entering a new system to trigger Discovery Scanner.",
+            wraplength=500,
+            justify="left"
+        )
+        help_text.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        
+        # Update initial state
+        on_auto_detect_changed()
+        
+        logger.info("AutoHonk preferences panel created successfully")
+        return frame
+        
+    except Exception as e:
+        logger.error(f"Error creating preferences panel: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Return a simple error frame
+        error_frame = tk.Frame(parent)
+        tk.Label(error_frame, text=f"AutoHonk Settings Error: {str(e)}", fg="red").pack()
+        return error_frame
 
 def prefs_changed(cmdr: str, is_beta: bool) -> None:
     """
@@ -297,19 +366,27 @@ def update_status_display():
 
 def on_auto_detect_changed():
     """Handle changes to the auto-detect checkbox."""
-    # This function can be used to enable/disable manual key entry
-    pass
+    try:
+        # This function can be used to enable/disable manual key entry
+        # For now, just log that it was called
+        if auto_detect_var is not None:
+            logger.debug(f"Auto-detect changed to: {auto_detect_var.get()}")
+    except Exception as e:
+        logger.error(f"Error in on_auto_detect_changed: {e}")
 
 def refresh_detected_key():
     """Refresh the detected primary fire key."""
-    global detected_primary_fire_key
-    detected_primary_fire_key = detect_primary_fire_key()
-    if detected_key_label:
-        detected_key_label.config(
-            text=detected_primary_fire_key or "Not found",
-            fg="green" if detected_primary_fire_key else "red"
-        )
-    logger.info(f"Refreshed detected key: {detected_primary_fire_key}")
+    try:
+        global detected_primary_fire_key
+        detected_primary_fire_key = detect_primary_fire_key()
+        if detected_key_label:
+            detected_key_label.config(
+                text=detected_primary_fire_key or "Not found",
+                fg="green" if detected_primary_fire_key else "red"
+            )
+        logger.info(f"Refreshed detected key: {detected_primary_fire_key}")
+    except Exception as e:
+        logger.error(f"Error refreshing detected key: {e}")
 
 def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: Dict[str, Any], state: Dict[str, Any]) -> None:
     """
@@ -571,6 +648,22 @@ def get_windows_vk_code(key: str) -> Optional[int]:
         'f10': win32con.VK_F10,
         'f11': win32con.VK_F11,
         'f12': win32con.VK_F12,
+        # Numpad keys
+        'numpad_add': win32con.VK_ADD,
+        'numpad_subtract': win32con.VK_SUBTRACT,
+        'numpad_multiply': win32con.VK_MULTIPLY,
+        'numpad_divide': win32con.VK_DIVIDE,
+        'numpad_decimal': win32con.VK_DECIMAL,
+        'numpad0': win32con.VK_NUMPAD0,
+        'numpad1': win32con.VK_NUMPAD1,
+        'numpad2': win32con.VK_NUMPAD2,
+        'numpad3': win32con.VK_NUMPAD3,
+        'numpad4': win32con.VK_NUMPAD4,
+        'numpad5': win32con.VK_NUMPAD5,
+        'numpad6': win32con.VK_NUMPAD6,
+        'numpad7': win32con.VK_NUMPAD7,
+        'numpad8': win32con.VK_NUMPAD8,
+        'numpad9': win32con.VK_NUMPAD9,
     }
     
     return special_keys.get(key.lower())
@@ -738,6 +831,22 @@ def convert_elite_key_name(elite_key: str) -> str:
         'LeftMouseButton': 'leftclick',
         'RightMouseButton': 'rightclick',
         'MiddleMouseButton': 'middleclick',
+        # Numpad keys
+        'Numpad_Add': 'numpad_add',
+        'Numpad_Subtract': 'numpad_subtract', 
+        'Numpad_Multiply': 'numpad_multiply',
+        'Numpad_Divide': 'numpad_divide',
+        'Numpad_Decimal': 'numpad_decimal',
+        'Numpad_0': 'numpad0',
+        'Numpad_1': 'numpad1',
+        'Numpad_2': 'numpad2',
+        'Numpad_3': 'numpad3',
+        'Numpad_4': 'numpad4',
+        'Numpad_5': 'numpad5',
+        'Numpad_6': 'numpad6',
+        'Numpad_7': 'numpad7',
+        'Numpad_8': 'numpad8',
+        'Numpad_9': 'numpad9',
     }
     
     # Check if it's a mapped key
