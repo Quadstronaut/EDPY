@@ -128,6 +128,9 @@ class AutoLoad:
         """Main execution logic."""
         # Wait for Elite window to appear
         elite_hwnd = self.wait_for_window()
+
+        # Testing shows that a wait timer is necessary
+        time.sleep(7)
         
         # Send the Enter keys to skip cutscene
         self.send_enter_keys(elite_hwnd)
