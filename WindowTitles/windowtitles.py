@@ -1,6 +1,8 @@
 import psutil
 from rich.console import Console
 from rich.table import Table
+import time
+import os
 
 def find_processes_with_string(search_string: str):
     """
@@ -12,7 +14,7 @@ def find_processes_with_string(search_string: str):
         title=f"Processes Matching '{search_string}'",
         show_header=True,
         header_style="bold magenta",
-        caption="[bold green]Note: Main window title may not be available for all processes.[/bold green]"
+        caption="[bold green]Note: Press Ctrl+C to stop.[/bold green]"
     )
     
     # Define columns for the table
@@ -31,19 +33,11 @@ def find_processes_with_string(search_string: str):
             p_pid = pinfo.get('pid')
             p_exe = pinfo.get('exe', 'N/A')
             
-            # Attempt to get the main window title (this is OS-dependent)
-            # The 'rich' library does not directly get window titles, so we use a fallback
-            try:
-                # This part is tricky and may require a separate library for cross-platform support.
-                # For a more robust solution, you might need pygetwindow or similar.
-                # Here, we'll just check if the process has a main window.
-                main_window_title = "N/A"
-                if hasattr(proc, 'nice'):
-                    main_window_title = "Available" # A placeholder for now
-                
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                main_window_title = "N/A"
-
+            # This part is tricky and may require a separate library for cross-platform support.
+            main_window_title = "N/A"
+            if hasattr(proc, 'nice'):
+                main_window_title = "Available" # A placeholder for now
+            
             # Check for a match in the process name
             if search_string.lower() in p_name:
                 found_matches = True
@@ -56,13 +50,24 @@ def find_processes_with_string(search_string: str):
         
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-            
+    
+    # Clear the screen before printing the new table
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
     if found_matches:
         console.print(table)
     else:
         console.print(f"[bold red]No processes found matching '{search_string}'[/bold red]")
-
+    
 # --- User-configurable part ---
 if __name__ == "__main__":
     user_search_string = input("Enter the string to search for: ")
-    find_processes_with_string(user_search_string)
+    print("Starting real-time process monitor...")
+    
+    try:
+        while True:
+            find_processes_with_string(user_search_string)
+            time.sleep(1) # Refresh every 1 second
+            
+    except KeyboardInterrupt:
+        print("\nProcess monitor stopped by user.")

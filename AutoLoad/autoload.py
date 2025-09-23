@@ -21,9 +21,6 @@ import win32process
 
 # Configuration
 CONFIG = {
-    # IMPORTANT: For reliability with multiple accounts, change this to the specific
-    # commander name for the sandbox this script is running in.
-    # For example: "CMDRQuadstronaut"
     "window_title_contains": "Elite - Dangerous (CLIENT)",
 }
 
