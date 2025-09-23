@@ -67,7 +67,7 @@ if __name__ == "__main__":
     try:
         while True:
             find_processes_with_string(user_search_string)
-            time.sleep(1) # Refresh every 1 second
+            time.sleep(0.5) # Refresh every 1 second
             
     except KeyboardInterrupt:
         print("\nProcess monitor stopped by user.")
