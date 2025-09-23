@@ -1,370 +1,7 @@
 """
 Elite Dangerous AutoHonk - Standalone Script
-Monitors Odyssey journal files and fires until FSSDiscoveryScan detected.
-
-Requirements:
-- pip install pywin32 watchdog pydirectinput
-"""
-
-import os
-import json
-import time
-import threading
-from pathlib import Path
-from typing import Optional
-import xml.etree.ElementTree as ET
-import logging
-
-# Hardware input simulation
-import pydirectinput
-
-# File monitoring
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-
-# Third party API imports for window handling
-import win32api
-import win32con
-import win32gui
-import win32process
-
-
-# Configuration
-CONFIG = {
-    # IMPORTANT: For reliability with multiple accounts, change this to the specific
-    # commander name for the sandbox this script is running in.
-    # For example: "CMDRQuadstronaut"
-    "window_title_contains": "Elite - Dangerous (CLIENT)",
-    "auto_detect_primary_fire": True,  # Auto-detect from bindings
-    "manual_key_override": None,  # Set to specific key if needed (e.g., 'add')
-    "journal_folder": Path.home()
-    / "Saved Games"
-    / "Frontier Developments"
-    / "Elite Dangerous",
-}
-
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("elite_autohonk.log")],
-)
-logger = logging.getLogger(__name__)
-
-
-class AutoHonk:
-    def __init__(self):
-        self.current_system = None
-        self.primary_fire_key = None
-        self.running = True
-        self.honking_active = False
-        self.stop_honking = threading.Event()
-
-        # Detect primary fire key on startup
-        self.detect_primary_fire_key()
-
-        print("=" * 60)
-        print("Elite Dangerous AutoHonk - FSSDiscoveryScan Detection")
-        print("=" * 60)
-        print(f"Monitoring journal folder: {CONFIG['journal_folder']}")
-        print(f"Looking for window containing: '{CONFIG['window_title_contains']}'")
-        print(f"Detected primary fire key: {self.primary_fire_key or 'Not detected'}")
-        print("Will hold key until FSSDiscoveryScan detected (max 10 seconds)")
-        print("Waiting for FSD jumps...")
-        print("-" * 60)
-
-    def detect_primary_fire_key(self):
-        """Detect Primary Fire key from Elite Dangerous bindings."""
-        try:
-            bindings_dir = (
-                Path(os.environ.get("LOCALAPPDATA"))
-                / "Frontier Developments"
-                / "Elite Dangerous"
-                / "Options"
-                / "Bindings"
-            )
-
-            if not bindings_dir.exists():
-                logger.warning("Bindings directory not found: %s", bindings_dir)
-                return
-
-            binds_files = list(bindings_dir.glob("*.binds"))
-            if not binds_files:
-                logger.warning("No .binds files found")
-                return
-
-            # Use the most recent bindings file
-            latest_bindings = max(binds_files, key=lambda x: x.stat().st_mtime)
-            logger.info("Reading bindings from: %s", latest_bindings)
-
-            tree = ET.parse(latest_bindings)
-            root = tree.getroot()
-
-            primary_fire = root.find(".//PrimaryFire")
-            if primary_fire is not None:
-                primary = primary_fire.find("Primary")
-                if primary is not None:
-                    device = primary.get("Device")
-                    key_attr = primary.get("Key")
-
-                    if device == "Keyboard" and key_attr:
-                        self.primary_fire_key = self.convert_elite_key_name(key_attr)
-                        logger.info(
-                            "Detected Primary Fire key: %s -> %s",
-                            key_attr,
-                            self.primary_fire_key,
-                        )
-                        return
-
-            logger.warning("PrimaryFire binding not found in bindings file")
-
-        except Exception as e:
-            logger.error("Error detecting primary fire key: %s", e)
-
-    def convert_elite_key_name(self, elite_key: str) -> str:
-        """Convert Elite Dangerous key name to a pydirectinput-compatible format."""
-        if elite_key.startswith("Key_"):
-            elite_key = elite_key[4:]
-
-        # Mapping from Elite's names to pydirectinput's names
-        key_mapping = {
-            "Numpad_Add": "add",
-            "Numpad_Subtract": "subtract",
-            "Numpad_Multiply": "multiply",
-            "Numpad_Divide": "divide",
-            # Add other mappings here if needed
-        }
-        
-        # Return the mapped key, or the lowercase version of the original if not in the map
-        return key_mapping.get(elite_key, elite_key.lower())
-
-    def find_elite_window(self) -> Optional[int]:
-        """Find Elite Dangerous window handle by process name and window title."""
-
-        def enum_windows_callback(hwnd, windows):
-            try:
-                if win32gui.IsWindowVisible(hwnd):
-                    title = win32gui.GetWindowText(hwnd)
-                    
-                    # Since we are inside the sandbox, we just check the title and process name
-                    if CONFIG["window_title_contains"].lower() in title.lower():
-                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                        process_handle = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, pid)
-                        process_name = win32process.GetModuleFileNameEx(process_handle, 0).lower()
-                        win32api.CloseHandle(process_handle)
-                        
-                        if "elitedangerous64" in process_name:
-                            windows.append((hwnd, title))
-            except Exception:
-                pass  # Ignore windows we can't access
-            return True
-
-        try:
-            windows = []
-            win32gui.EnumWindows(enum_windows_callback, windows)
-
-            if windows:
-                hwnd, title = windows[0]
-                logger.info("Found Elite window: '%s'", title)
-                return hwnd
-            else:
-                logger.warning(
-                    "Elite Dangerous window not found (title should contain '%s')",
-                    CONFIG["window_title_contains"],
-                )
-                return None
-        except Exception as e:
-            logger.error("Error finding Elite window: %s", e)
-            return None
-
-    def send_keypress_until_scan(self, key: str):
-        """
-        Send keypress until FSSDiscoveryScan detected or 10 second timeout.
-        """
-        try:
-            logger.info("Attempting to find and focus Elite window...")
-            elite_hwnd = self.find_elite_window()
-
-            if not elite_hwnd:
-                logger.error("Elite Dangerous window not found. Cannot send keypress.")
-                print("❌ Elite Dangerous window not found - cannot send keypress")
-                return
-
-            # Bring the window to the foreground before sending input
-            try:
-                win32gui.SetForegroundWindow(elite_hwnd)
-                time.sleep(0.2)  # Allow Windows to process the focus change
-                logger.info("Successfully set Elite window to foreground.")
-            except Exception as e:
-                logger.error(f"Could not set window to foreground: {e}")
-                print(f"❌ Could not focus window: {e}")
-                return
-
-            self.honking_active = True
-            self.stop_honking.clear()
-            
-            print(f"⬇️  Key DOWN: {key} (waiting for FSSDiscoveryScan or 10s timeout)")
-            logger.info(f"Starting keypress '{key}' - will hold until FSSDiscoveryScan or timeout")
-
-            pydirectinput.keyDown(key)
-            start_time = time.time()
-            max_duration = 10.0  # 10 second maximum
-
-            # Wait for either FSSDiscoveryScan event or timeout
-            while self.honking_active and not self.stop_honking.wait(0.1):
-                elapsed = time.time() - start_time
-                if elapsed >= max_duration:
-                    print(f"⏰ Timeout reached ({max_duration}s) - stopping keypress")
-                    logger.info(f"Keypress timeout reached after {elapsed:.1f} seconds")
-                    break
-
-            pydirectinput.keyUp(key)
-            elapsed = time.time() - start_time
-            
-            if self.stop_honking.is_set():
-                print(f"⬆️  Key UP: {key} (FSSDiscoveryScan detected after {elapsed:.1f}s)")
-                logger.info(f"Keypress stopped by FSSDiscoveryScan after {elapsed:.1f} seconds")
-            else:
-                print(f"⬆️  Key UP: {key} (timeout after {elapsed:.1f}s)")
-                logger.info(f"Keypress stopped by timeout after {elapsed:.1f} seconds")
-            
-            print("✅ Keypress complete!")
-            self.honking_active = False
-
-        except Exception as e:
-            self.honking_active = False
-            logger.error(f"An error occurred during send_keypress_until_scan: {e}")
-            print(f"❌ Error sending keypress: {e}")
-            try:
-                pydirectinput.keyUp(key)  # Ensure key is released on error
-            except:
-                pass
-
-    def process_journal_entry(self, entry: dict):
-        """Process a journal entry and trigger honk if needed."""
-        event_type = entry.get("event")
-        timestamp = entry.get("timestamp", "Unknown")
-
-        if event_type == "FSDJump":
-            new_system = entry.get("StarSystem")
-            if new_system and new_system != self.current_system:
-                print("\n🚀 FSD JUMP DETECTED!")
-                print(f"  Time: {timestamp}")
-                print(f"  From: {self.current_system or 'Unknown'}")
-                print(f"  To: {new_system}")
-                self.current_system = new_system
-
-                key_to_use = (
-                    CONFIG["manual_key_override"]
-                    or self.primary_fire_key
-                    or "add"  # Fallback to numpad '+'
-                )
-                
-                print(f"  Using key: {key_to_use}")
-                print("  Waiting 1 second before honking...")
-
-                def delayed_honk():
-                    time.sleep(1.0)  # Hardcoded 1 second delay
-                    self.send_keypress_until_scan(key_to_use)
-                    print("-" * 60)
-
-                threading.Thread(target=delayed_honk, daemon=True).start()
-
-        elif event_type == "FSSDiscoveryScan":
-            if self.honking_active:
-                print("🔍 FSSDiscoveryScan detected - stopping keypress!")
-                logger.info("FSSDiscoveryScan event detected, signaling to stop keypress")
-                self.stop_honking.set()
-
-        elif event_type in ["Location", "LoadGame", "StartUp"]:
-            system = entry.get("StarSystem")
-            if system and system != self.current_system:
-                self.current_system = system
-                print(f"📍 Current system: {system}")
-
-
-class JournalMonitor(FileSystemEventHandler):
-    def __init__(self, autohonk: AutoHonk):
-        self.autohonk = autohonk
-        self.current_file = None
-        self.file_position = 0
-        self.find_latest_journal()
-
-    def find_latest_journal(self):
-        try:
-            journal_files = list(CONFIG["journal_folder"].glob("Journal.*.log"))
-            if journal_files:
-                latest_journal = max(journal_files, key=lambda x: x.stat().st_mtime)
-                self.current_file = latest_journal
-                self.file_position = latest_journal.stat().st_size
-                logger.info("Monitoring journal file: %s", latest_journal)
-                print(f"📖 Monitoring: {latest_journal.name}")
-            else:
-                logger.warning("No journal files found")
-                print("⚠️  No journal files found")
-        except Exception as e:
-            logger.error("Error finding journal files: %s", e)
-
-    def on_modified(self, event):
-        if not event.is_directory and Path(event.src_path).name.startswith("Journal."):
-            self.read_new_lines(Path(event.src_path))
-
-    def on_created(self, event):
-        if not event.is_directory and Path(event.src_path).name.startswith("Journal."):
-            file_path = Path(event.src_path)
-            print(f"\n📖 New journal file detected: {file_path.name}")
-            self.current_file = file_path
-            self.file_position = 0
-
-    def read_new_lines(self, file_path: Path):
-        try:
-            if file_path != self.current_file:
-                return
-
-            with open(file_path, "r", encoding="utf-8") as f:
-                f.seek(self.file_position)
-                new_lines = f.readlines()
-                self.file_position = f.tell()
-
-                for line in new_lines:
-                    line = line.strip()
-                    if line:
-                        try:
-                            self.autohonk.process_journal_entry(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
-        except Exception as e:
-            logger.error("Error reading journal file: %s", e)
-
-
-def main():
-    """Main function to start the AutoHonk monitor."""
-    if not CONFIG["journal_folder"].exists():
-        print(f"❌ Journal folder not found: {CONFIG['journal_folder']}")
-        input("Press Enter to exit...")
-        return
-
-    autohonk = AutoHonk()
-    event_handler = JournalMonitor(autohonk)
-    observer = Observer()
-    observer.schedule(event_handler, str(CONFIG["journal_folder"]), recursive=False)
-    observer.start()
-
-    try:
-        print("\n✅ AutoHonk is running! Press Ctrl+C to stop.")
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n\n🛑 Stopping AutoHonk...")
-        observer.stop()
-    observer.join()
-    print("👋 AutoHonk stopped. Goodbye!")
-
-
-if __name__ == "__main__":
-    main()"""
-Elite Dangerous AutoHonk - Standalone Script
 Monitors Elite Dangerous journal files and auto-presses your Primary Fire key when jumping to new systems.
+Modified to hold key until FSSDiscoveryScan event instead of fixed duration.
 
 Requirements:
 - pip install pywin32 watchdog
@@ -393,9 +30,10 @@ from watchdog.events import FileSystemEventHandler
 
 # Configuration
 CONFIG = {
-    'window_title_contains': 'CMDRDuvrazh',  # Part of Elite window title to look for
-    'hold_duration': 6.0,  # Hold key for 6 seconds as requested
+    'window_title_contains': 'Elite - Dangerous (CLIENT)',  # Part of Elite window title to look for
     'delay_after_jump': 2.0,  # Wait 2 seconds after jump before honking
+    'max_honk_duration': 7.0,  # Maximum time to honk (safety fallback)
+    'key_press_interval': 0.1,  # How often to send key presses (for continuous hold)
     'auto_detect_primary_fire': True,  # Auto-detect from bindings
     'manual_key_override': None,  # Set to specific key if needed (e.g., 'numpad_add')
     'journal_folder': Path.home() / 'Saved Games' / 'Frontier Developments' / 'Elite Dangerous'
@@ -418,17 +56,21 @@ class AutoHonk:
         self.primary_fire_key = None
         self.elite_hwnd = None
         self.running = True
+        self.honking_active = False
+        self.honk_thread = None
+        self.honk_lock = threading.Lock()
         
         # Detect primary fire key on startup
         self.detect_primary_fire_key()
         
         print("=" * 60)
-        print("Elite Dangerous AutoHonk - Standalone")
+        print("Elite Dangerous AutoHonk - Standalone (FSS Discovery Mode)")
         print("=" * 60)
         print(f"Monitoring journal folder: {CONFIG['journal_folder']}")
         print(f"Looking for window containing: '{CONFIG['window_title_contains']}'")
         print(f"Detected primary fire key: {self.primary_fire_key or 'Not detected'}")
-        print(f"Key hold duration: {CONFIG['hold_duration']} seconds")
+        print(f"Max honk duration (safety): {CONFIG['max_honk_duration']} seconds")
+        print("Will honk until FSSDiscoveryScan event is detected...")
         print("Waiting for FSD jumps...")
         print("-" * 60)
     
@@ -551,8 +193,8 @@ class AutoHonk:
         else:
             return None
     
-    def send_keypress(self, key: str, duration: float):
-        """Send keypress to Elite Dangerous window."""
+    def continuous_keypress(self, key: str):
+        """Send continuous keypress until stopped."""
         try:
             # Find Elite window
             elite_hwnd = self.find_elite_window()
@@ -566,27 +208,67 @@ class AutoHonk:
                 print(f"❌ Unknown key: {key}")
                 return
             
-            print(f"🎯 Sending keypress '{key}' to Elite Dangerous for {duration} seconds...")
+            print(f"🎯 Starting continuous keypress '{key}' to Elite Dangerous...")
+            print("   Will continue until FSSDiscoveryScan event or timeout...")
             
             # Bring window to foreground
             win32gui.SetForegroundWindow(elite_hwnd)
             time.sleep(0.2)  # Brief delay to ensure focus
             
-            # Send key down
-            win32api.keybd_event(vk_code, 0, 0, 0)
-            print(f"⬇️  Key DOWN: {key}")
+            start_time = time.time()
+            key_down = False
             
-            # Hold for specified duration
-            time.sleep(duration)
+            while self.honking_active and self.running:
+                # Send key down if not already down
+                if not key_down:
+                    win32api.keybd_event(vk_code, 0, 0, 0)
+                    print(f"⬇️ Key DOWN: {key}")
+                    key_down = True
+                
+                # Check for timeout (safety mechanism)
+                elapsed = time.time() - start_time
+                if elapsed >= CONFIG['max_honk_duration']:
+                    print(f"⏰ Timeout reached ({CONFIG['max_honk_duration']}s) - stopping honk")
+                    break
+                
+                # Short sleep to prevent excessive CPU usage
+                time.sleep(CONFIG['key_press_interval'])
             
-            # Send key up
-            win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
-            print(f"⬆️  Key UP: {key}")
-            print(f"✅ Keypress complete!")
+            # Always send key up when done
+            if key_down:
+                win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+                print(f"⬆️ Key UP: {key}")
+            
+            elapsed = time.time() - start_time
+            print(f"✅ Honking complete! Duration: {elapsed:.1f} seconds")
             
         except Exception as e:
-            print(f"❌ Error sending keypress: {e}")
-            logger.error(f"Keypress error: {e}")
+            print(f"❌ Error during continuous keypress: {e}")
+            logger.error(f"Continuous keypress error: {e}")
+    
+    def start_honking(self, key: str):
+        """Start the honking process in a separate thread."""
+        with self.honk_lock:
+            if self.honking_active:
+                print("⚠️ Already honking - ignoring duplicate request")
+                return
+            
+            self.honking_active = True
+            self.honk_thread = threading.Thread(target=self.continuous_keypress, args=(key,), daemon=True)
+            self.honk_thread.start()
+    
+    def stop_honking(self):
+        """Stop the honking process."""
+        with self.honk_lock:
+            if not self.honking_active:
+                return
+            
+            print("🛑 FSSDiscoveryScan detected - stopping honk")
+            self.honking_active = False
+            
+            # Wait for thread to finish
+            if self.honk_thread and self.honk_thread.is_alive():
+                self.honk_thread.join(timeout=1.0)
     
     def process_journal_entry(self, entry: dict):
         """Process a journal entry and trigger honk if needed."""
@@ -603,6 +285,9 @@ class AutoHonk:
                     print(f"   To: {new_system}")
                     
                     self.current_system = new_system
+                    
+                    # Stop any existing honking first
+                    self.stop_honking()
                     
                     # Determine which key to use
                     key_to_use = None
@@ -621,11 +306,23 @@ class AutoHonk:
                     
                     def delayed_honk():
                         time.sleep(CONFIG['delay_after_jump'])
-                        self.send_keypress(key_to_use, CONFIG['hold_duration'])
-                        print("-" * 60)
+                        self.start_honking(key_to_use)
                     
                     # Run in separate thread so it doesn't block file monitoring
                     threading.Thread(target=delayed_honk, daemon=True).start()
+            
+            elif event_type == 'FSSDiscoveryScan':
+                # This is the event that tells us the discovery scan is complete
+                bodies_count = entry.get('BodyCount', 'Unknown')
+                non_bodies_count = entry.get('NonBodyCount', 'Unknown')
+                print(f"\n📡 FSS DISCOVERY SCAN COMPLETE!")
+                print(f"   Time: {timestamp}")
+                print(f"   Bodies found: {bodies_count}")
+                print(f"   Non-body signals: {non_bodies_count}")
+                
+                # Stop honking
+                self.stop_honking()
+                print("-" * 60)
                     
             elif event_type in ['Location', 'LoadGame', 'StartUp']:
                 # Track current system from these events too
@@ -658,7 +355,7 @@ class JournalMonitor(FileSystemEventHandler):
                 print(f"📖 Monitoring: {latest_journal.name}")
             else:
                 logger.warning("No journal files found")
-                print("⚠️  No journal files found")
+                print("⚠️ No journal files found")
         except Exception as e:
             logger.error(f"Error finding journal files: {e}")
     
@@ -710,7 +407,7 @@ class JournalMonitor(FileSystemEventHandler):
 
 def main():
     """Main function to start the AutoHonk monitor."""
-    print("Starting Elite Dangerous AutoHonk...")
+    print("Starting Elite Dangerous AutoHonk (FSS Discovery Mode)...")
     
     # Check if journal folder exists
     if not CONFIG['journal_folder'].exists():
@@ -737,6 +434,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 Stopping AutoHonk...")
         autohonk.running = False
+        autohonk.stop_honking()  # Make sure to stop any active honking
         observer.stop()
     
     observer.join()
