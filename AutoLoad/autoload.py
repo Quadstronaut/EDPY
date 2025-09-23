@@ -1,14 +1,16 @@
 """
 Elite Dangerous AutoLoad - Standalone Script
-Sends a couple Enter keys to skip the opening cutscene.
+Sends a couple ESC keys to skip the opening cutscene.
 
 Requirements:
-- pip install pywin32 pydirectinput
+- pip install pywin32 pydirectinput pycaw
 """
 
 import time
 import logging
 from typing import Optional
+import ctypes
+from ctypes import wintypes
 
 # Hardware input simulation
 import pydirectinput
@@ -18,6 +20,9 @@ import win32api
 import win32con
 import win32gui
 import win32process
+
+# Audio detection imports
+from pycaw.pycaw import AudioUtilities
 
 # Configuration
 CONFIG = {
@@ -41,7 +46,7 @@ class AutoLoad:
         print("=" * 60)
         print(f"Looking for process: '{CONFIG['process_name']}.exe'")
         print(f"Waiting for window title: '{CONFIG['window_title_contains']}'")
-        print("Waiting for Elite Dangerous window to appear with proper title...")
+        print("Will wait for window title AND audio output before sending keys...")
         print("-" * 60)
 
     def find_elite_window_with_title(self) -> Optional[int]:
@@ -96,6 +101,49 @@ class AutoLoad:
             logger.error("Error finding Elite window: %s", e)
             return None
 
+    def is_elite_producing_audio(self) -> bool:
+        """Check if Elite Dangerous process is currently producing audio."""
+        try:
+            # Get all audio sessions
+            sessions = AudioUtilities.GetAllSessions()
+            
+            for session in sessions:
+                if session.Process:
+                    process_name = session.Process.name().lower()
+                    if CONFIG["process_name"].lower() in process_name:
+                        # Check if the session is active and has volume > 0
+                        volume = session.SimpleAudioVolume
+                        if volume and not volume.GetMute():
+                            # Session exists and is not muted - Elite is producing audio
+                            logger.debug(f"Elite audio session found: {process_name}, muted: {volume.GetMute()}")
+                            return True
+                        elif volume:
+                            logger.debug(f"Elite audio session found but muted: {process_name}")
+                        else:
+                            logger.debug(f"Elite process found but no audio volume interface: {process_name}")
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Error checking audio sessions: {e}")
+            return False
+
+    def wait_for_audio(self) -> None:
+        """Wait until Elite Dangerous starts producing audio."""
+        print("Window found! Now waiting for Elite Dangerous to start producing audio...")
+        
+        audio_check_count = 0
+        while True:
+            if self.is_elite_producing_audio():
+                print("Elite Dangerous is now producing audio!")
+                logger.info("Elite Dangerous audio detected")
+                return
+            
+            audio_check_count += 1
+            if audio_check_count % 10 == 0:  # Every 5 seconds
+                print(f"Still waiting for audio... (checked {audio_check_count} times)")
+                
+            time.sleep(0.5)  # Check every 500ms
     def wait_for_window_with_title(self) -> int:
         """Wait until Elite Dangerous window appears with proper non-blank title."""
         print("Waiting for Elite Dangerous to start and show proper window title...")
@@ -110,36 +158,36 @@ class AutoLoad:
             
             check_count += 1
             if check_count % 10 == 0:  # Every 5 seconds, show we're still checking
-                print(f"Still waiting... (checked {check_count} times)")
+                print(f"Still waiting for window title... (checked {check_count} times)")
                 
             time.sleep(0.5)  # Check every 500ms
 
-    def send_enter_keys(self, elite_hwnd: int):
-        """Send Enter key twice with focus management."""
+    def send_esc_keys(self, elite_hwnd: int):
+        """Send ESC key twice with focus management."""
         try:
-            print("Sending first Enter key...")
+            print("Sending first ESC key...")
             
-            # Focus window and send first Enter
+            # Focus window and send first esc
             win32gui.SetForegroundWindow(elite_hwnd)
             time.sleep(0.1)  # Brief delay to ensure focus
-            pydirectinput.press('enter')
-            logger.info("First Enter key sent")
+            pydirectinput.press('esc')
+            logger.info("First ESC key sent")
             
             # Wait 250ms
             time.sleep(0.25)
             
-            print("Sending second Enter key...")
+            print("Sending second ESC key...")
             
-            # Focus window again and send second Enter
+            # Focus window again and send second esc
             win32gui.SetForegroundWindow(elite_hwnd)
             time.sleep(0.1)  # Brief delay to ensure focus
-            pydirectinput.press('enter')
-            logger.info("Second Enter key sent")
+            pydirectinput.press('esc')
+            logger.info("Second ESC key sent")
             
             print("Cutscene skip complete!")
             
         except Exception as e:
-            logger.error(f"Error sending Enter keys: {e}")
+            logger.error(f"Error sending ESC keys: {e}")
             print(f"Error sending keys: {e}")
 
     def run(self):
@@ -147,12 +195,15 @@ class AutoLoad:
         # Wait for Elite window to appear with proper title
         elite_hwnd = self.wait_for_window_with_title()
 
-        # Brief pause to ensure the window is fully ready
-        print("Window found, waiting 1 second before sending keys...")
+        # Wait for Elite to start producing audio
+        self.wait_for_audio()
+
+        # Brief pause to ensure everything is ready
+        print("Audio detected! Waiting 1 second before sending keys...")
         time.sleep(1)
         
-        # Send the Enter keys to skip cutscene
-        self.send_enter_keys(elite_hwnd)
+        # Send the ESC keys to skip cutscene
+        self.send_esc_keys(elite_hwnd)
 
 
 def main():
