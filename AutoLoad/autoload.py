@@ -22,6 +22,7 @@ import win32process
 # Configuration
 CONFIG = {
     "window_title_contains": "Elite - Dangerous (CLIENT)",
+    "process_name": "elitedangerous64",
 }
 
 # Logging setup
@@ -38,20 +39,22 @@ class AutoLoad:
         print("=" * 60)
         print("Elite Dangerous AutoLoad - Skip Cutscene")
         print("=" * 60)
-        print(f"Looking for window containing: '{CONFIG['window_title_contains']}'")
-        print("Waiting for Elite Dangerous window to appear...")
+        print(f"Looking for process: '{CONFIG['process_name']}.exe'")
+        print(f"Waiting for window title: '{CONFIG['window_title_contains']}'")
+        print("Waiting for Elite Dangerous window to appear with proper title...")
         print("-" * 60)
 
-    def find_elite_window(self) -> Optional[int]:
-        """Find Elite Dangerous window handle by process name and window title."""
+    def find_elite_window_with_title(self) -> Optional[int]:
+        """Find Elite Dangerous window handle by process name and ensure it has the proper title."""
 
         def enum_windows_callback(hwnd, windows):
             try:
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
                     
-                    if CONFIG["window_title_contains"].lower() in title.lower():
-                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    # Get the process info for this window
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    try:
                         process_handle = win32api.OpenProcess(
                             win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, 
                             False, 
@@ -60,9 +63,22 @@ class AutoLoad:
                         process_name = win32process.GetModuleFileNameEx(process_handle, 0).lower()
                         win32api.CloseHandle(process_handle)
                         
-                        if "elitedangerous64" in process_name:
-                            windows.append((hwnd, title))
-            except Exception:
+                        # Check if this is the Elite Dangerous process
+                        if CONFIG["process_name"].lower() in process_name:
+                            # Only add if the title is not blank AND contains our target string
+                            if title.strip() and CONFIG["window_title_contains"].lower() in title.lower():
+                                windows.append((hwnd, title, process_name))
+                                logger.info(f"Found Elite window with title: '{title}' from process: {process_name}")
+                            elif title.strip():
+                                logger.debug(f"Elite process found but title doesn't match: '{title}' from process: {process_name}")
+                            else:
+                                logger.debug(f"Elite process found but title is blank from process: {process_name}")
+                                
+                    except Exception as e:
+                        logger.debug(f"Could not get process info for PID {pid}: {e}")
+                        
+            except Exception as e:
+                logger.debug(f"Error processing window {hwnd}: {e}")
                 pass  # Ignore windows we can't access
             return True
 
@@ -71,8 +87,8 @@ class AutoLoad:
             win32gui.EnumWindows(enum_windows_callback, windows)
 
             if windows:
-                hwnd, title = windows[0]
-                logger.info("Found Elite window: '%s'", title)
+                hwnd, title, process_name = windows[0]
+                logger.info("Selected Elite window: '%s' from %s", title, process_name)
                 return hwnd
             else:
                 return None
@@ -80,17 +96,22 @@ class AutoLoad:
             logger.error("Error finding Elite window: %s", e)
             return None
 
-    def wait_for_window(self) -> int:
-        """Wait until Elite Dangerous window appears."""
-        print("Waiting for Elite Dangerous to start...")
+    def wait_for_window_with_title(self) -> int:
+        """Wait until Elite Dangerous window appears with proper non-blank title."""
+        print("Waiting for Elite Dangerous to start and show proper window title...")
         
+        check_count = 0
         while True:
-            elite_hwnd = self.find_elite_window()
+            elite_hwnd = self.find_elite_window_with_title()
             if elite_hwnd:
-                print(f"Elite Dangerous window found!")
-                logger.info("Elite Dangerous window detected")
+                print(f"Elite Dangerous window found with proper title!")
+                logger.info("Elite Dangerous window with title detected")
                 return elite_hwnd
             
+            check_count += 1
+            if check_count % 10 == 0:  # Every 5 seconds, show we're still checking
+                print(f"Still waiting... (checked {check_count} times)")
+                
             time.sleep(0.5)  # Check every 500ms
 
     def send_enter_keys(self, elite_hwnd: int):
@@ -123,11 +144,12 @@ class AutoLoad:
 
     def run(self):
         """Main execution logic."""
-        # Wait for Elite window to appear
-        elite_hwnd = self.wait_for_window()
+        # Wait for Elite window to appear with proper title
+        elite_hwnd = self.wait_for_window_with_title()
 
-        # Testing shows that a wait timer is necessary
-        time.sleep(7)
+        # Brief pause to ensure the window is fully ready
+        print("Window found, waiting 1 second before sending keys...")
+        time.sleep(1)
         
         # Send the Enter keys to skip cutscene
         self.send_enter_keys(elite_hwnd)
