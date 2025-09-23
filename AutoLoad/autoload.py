@@ -3,7 +3,7 @@ Elite Dangerous AutoLoad - Multi-Commander Script
 Sends a couple ESC keys to skip the opening cutscene for multiple commanders.
 
 Requirements:
-- pip install pywin32 pydirectinput pycaw
+- pip install pywin32 pycaw
 """
 
 import time
@@ -11,9 +11,6 @@ import logging
 from typing import Optional, Set, List, Tuple
 import ctypes
 from ctypes import wintypes
-
-# Hardware input simulation
-import pydirectinput
 
 # Third party API imports for window handling
 import win32api
@@ -28,7 +25,8 @@ from pycaw.pycaw import AudioUtilities
 CONFIG = {
     "window_title_contains": "Elite - Dangerous (CLIENT)",
     "process_name": "elitedangerous64",
-    "commanders": ["Duvrazh", "Bistronaut", "Tristronaut", "Quadstronaut"],
+    "commanders": ["Bistronaut", "Tristronaut", "Quadstronaut"],  # Named commanders (Duvrazh handled separately)
+    "primary_commander": "Duvrazh",  # Primary commander without name in window title
 }
 
 # Logging setup
@@ -43,14 +41,16 @@ logger = logging.getLogger(__name__)
 class MultiCommanderAutoLoad:
     def __init__(self):
         self.processed_commanders: Set[str] = set()
-        self.total_commanders = len(CONFIG["commanders"])
+        self.all_commanders = CONFIG["commanders"] + [CONFIG["primary_commander"]]
+        self.total_commanders = len(self.all_commanders)
         
         print("=" * 60)
         print("Elite Dangerous Multi-Commander AutoLoad - Skip Cutscene")
         print("=" * 60)
         print(f"Looking for process: '{CONFIG['process_name']}.exe'")
         print(f"Window title must contain: '{CONFIG['window_title_contains']}'")
-        print(f"Commanders to process: {', '.join(CONFIG['commanders'])}")
+        print(f"Named commanders: {', '.join(CONFIG['commanders'])}")
+        print(f"Primary commander (no name in title): {CONFIG['primary_commander']}")
         print("Will wait for window title AND audio output before sending keys...")
         print("-" * 60)
 
@@ -77,12 +77,25 @@ class MultiCommanderAutoLoad:
                         if CONFIG["process_name"].lower() in process_name:
                             # Check if title contains our base window title
                             if title.strip() and CONFIG["window_title_contains"].lower() in title.lower():
-                                # Check if title contains any unprocessed commander name
+                                
+                                # First, check for named commanders
                                 for commander in CONFIG["commanders"]:
                                     if commander not in self.processed_commanders and commander.lower() in title.lower():
                                         windows.append((hwnd, title, commander))
                                         logger.info(f"Found Elite window for {commander}: '{title}' from process: {process_name}")
-                                        break
+                                        return True  # Found a named commander, continue
+                                
+                                # If no named commanders found and primary commander not processed,
+                                # check if this could be the primary commander's window
+                                primary_commander = CONFIG["primary_commander"]
+                                if primary_commander not in self.processed_commanders:
+                                    # Check if title contains any OTHER commander names - if not, it's likely the primary
+                                    has_other_commander = any(cmd.lower() in title.lower() for cmd in CONFIG["commanders"])
+                                    if not has_other_commander:
+                                        # This window doesn't contain any named commander, assume it's primary
+                                        windows.append((hwnd, title, primary_commander))
+                                        logger.info(f"Found Elite window for {primary_commander} (no name in title): '{title}' from process: {process_name}")
+                                        
                             elif title.strip():
                                 logger.debug(f"Elite process found but title doesn't match pattern: '{title}' from process: {process_name}")
                             else:
@@ -133,7 +146,7 @@ class MultiCommanderAutoLoad:
 
     def wait_for_next_commander_window(self) -> Optional[Tuple[int, str, str]]:
         """Wait for the next unprocessed commander's window to appear."""
-        remaining_commanders = [cmd for cmd in CONFIG["commanders"] if cmd not in self.processed_commanders]
+        remaining_commanders = [cmd for cmd in self.all_commanders if cmd not in self.processed_commanders]
         
         if not remaining_commanders:
             return None
@@ -144,8 +157,24 @@ class MultiCommanderAutoLoad:
         while remaining_commanders:
             windows = self.find_unprocessed_elite_windows()
             if windows:
-                # Return the first found window
-                hwnd, title, commander = windows[0]
+                # Prioritize named commanders over primary commander
+                named_windows = [(hwnd, title, cmd) for hwnd, title, cmd in windows if cmd in CONFIG["commanders"]]
+                primary_windows = [(hwnd, title, cmd) for hwnd, title, cmd in windows if cmd == CONFIG["primary_commander"]]
+                
+                # Process named commanders first, then primary
+                if named_windows:
+                    hwnd, title, commander = named_windows[0]
+                elif primary_windows and len(self.processed_commanders) == len(CONFIG["commanders"]):
+                    # Only process primary commander after all named commanders are done
+                    hwnd, title, commander = primary_windows[0]
+                else:
+                    # Wait for named commanders first
+                    check_count += 1
+                    if check_count % 10 == 0:  # Every 5 seconds
+                        print(f"Still waiting for named commander windows... (checked {check_count} times)")
+                    time.sleep(0.5)
+                    continue
+                
                 print(f"Found window for commander {commander}: '{title}'")
                 logger.info(f"Elite Dangerous window detected for {commander}")
                 return hwnd, title, commander
@@ -157,7 +186,7 @@ class MultiCommanderAutoLoad:
             time.sleep(0.5)  # Check every 500ms
             
             # Update remaining commanders list in case some were processed
-            remaining_commanders = [cmd for cmd in CONFIG["commanders"] if cmd not in self.processed_commanders]
+            remaining_commanders = [cmd for cmd in self.all_commanders if cmd not in self.processed_commanders]
             
         return None
 
@@ -179,14 +208,17 @@ class MultiCommanderAutoLoad:
             time.sleep(0.5)  # Check every 500ms
 
     def send_esc_keys(self, elite_hwnd: int, commander: str):
-        """Send ESC key twice with focus management."""
+        """Send ESC key twice using Windows API (autohonk method)."""
         try:
             print(f"Sending first ESC key to {commander}'s window...")
             
-            # Focus window and send first esc
+            # Bring window to foreground
             win32gui.SetForegroundWindow(elite_hwnd)
-            time.sleep(0.1)  # Brief delay to ensure focus
-            pydirectinput.press('esc')
+            time.sleep(0.2)  # Brief delay to ensure focus
+            
+            # Send first ESC key using Windows API
+            win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)  # Key down
+            win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
             logger.info(f"First ESC key sent to {commander}")
             
             # Wait 250ms
@@ -194,10 +226,13 @@ class MultiCommanderAutoLoad:
             
             print(f"Sending second ESC key to {commander}'s window...")
             
-            # Focus window again and send second esc
+            # Focus window again and send second ESC
             win32gui.SetForegroundWindow(elite_hwnd)
             time.sleep(0.1)  # Brief delay to ensure focus
-            pydirectinput.press('esc')
+            
+            # Send second ESC key using Windows API
+            win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)  # Key down
+            win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
             logger.info(f"Second ESC key sent to {commander}")
             
             print(f"Cutscene skip complete for {commander}!")
