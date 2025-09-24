@@ -1,6 +1,6 @@
 """
 Elite Dangerous AutoLoad - Multi-Commander Script
-Sends a couple ESC keys to skip the opening cutscene for multiple commanders.
+Sends a couple ESC keys to skip the opening cutscene for one or more commanders.
 
 Requirements:
 - pip install pywin32 pycaw
@@ -25,8 +25,9 @@ from pycaw.pycaw import AudioUtilities
 CONFIG = {
     "window_title_contains": "Elite - Dangerous (CLIENT)",
     "process_name": "elitedangerous64",
-    "commanders": ["Bistronaut", "Tristronaut", "Quadstronaut"],  # Named commanders (Duvrazh handled separately)
-    "primary_commander": "Duvrazh",  # Primary commander without name in window title
+    # For multibox setups define your alts here
+    "commanders": ["Bistronaut", "Tristronaut", "Quadstronaut"],
+    "primary_commander": "Duvrazh",  # Primary commander default without name in window title
 }
 
 # Logging setup
@@ -208,31 +209,37 @@ class MultiCommanderAutoLoad:
             time.sleep(0.5)  # Check every 500ms
 
     def send_esc_keys(self, elite_hwnd: int, commander: str):
-        """Send ESC key twice using Windows API (autohonk method)."""
+        """Send ESC key twice using Windows API with improved reliability."""
         try:
             print(f"Sending first ESC key to {commander}'s window...")
             
-            # Bring window to foreground
+            # Bring window to foreground and ensure it's focused
             win32gui.SetForegroundWindow(elite_hwnd)
-            time.sleep(0.2)  # Brief delay to ensure focus
+            win32gui.SetActiveWindow(elite_hwnd)
+            time.sleep(0.5)  # Longer delay to ensure focus is established
             
-            # Send first ESC key using Windows API
-            win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)  # Key down
-            win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
+            # Verify the window is actually focused
+            focused_hwnd = win32gui.GetForegroundWindow()
+            if focused_hwnd != elite_hwnd:
+                logger.warning(f"Failed to focus window for {commander}. Trying alternative method...")
+                # Alternative focus method
+                win32gui.ShowWindow(elite_hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(elite_hwnd)
+                time.sleep(0.5)
+            
+            # Send first ESC key - use PostMessage for more reliable delivery
+            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
+            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0xC0000000)
             logger.info(f"First ESC key sent to {commander}")
             
-            # Wait 250ms
-            time.sleep(0.25)
+            # Wait 50ms (more reasonable timing)
+            time.sleep(0.05)
             
             print(f"Sending second ESC key to {commander}'s window...")
             
-            # Focus window again and send second ESC
-            win32gui.SetForegroundWindow(elite_hwnd)
-            time.sleep(0.1)  # Brief delay to ensure focus
-            
-            # Send second ESC key using Windows API
-            win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)  # Key down
-            win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
+            # Send second ESC key
+            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
+            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0xC0000000)
             logger.info(f"Second ESC key sent to {commander}")
             
             print(f"Cutscene skip complete for {commander}!")
@@ -240,6 +247,18 @@ class MultiCommanderAutoLoad:
         except Exception as e:
             logger.error(f"Error sending ESC keys to {commander}: {e}")
             print(f"Error sending keys to {commander}: {e}")
+            
+            # Fallback to the original method if PostMessage fails
+            try:
+                print(f"Trying fallback method for {commander}...")
+                win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)
+                win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)
+                time.sleep(0.05)
+                win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)
+                win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)
+                logger.info(f"Fallback ESC keys sent to {commander}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback method also failed for {commander}: {fallback_error}")
 
     def process_commander(self, hwnd: int, title: str, commander: str):
         """Process a single commander's window."""
