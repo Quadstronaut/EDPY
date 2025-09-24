@@ -209,56 +209,198 @@ class MultiCommanderAutoLoad:
             time.sleep(0.5)  # Check every 500ms
 
     def send_esc_keys(self, elite_hwnd: int, commander: str):
-        """Send ESC key twice using Windows API with improved reliability."""
+        """Send ESC key twice using multiple methods for maximum compatibility."""
         try:
-            print(f"Sending first ESC key to {commander}'s window...")
+            print(f"Focusing window and sending ESC keys to {commander}...")
             
-            # Bring window to foreground and ensure it's focused
+            # Ensure window is properly focused
             win32gui.SetForegroundWindow(elite_hwnd)
             win32gui.SetActiveWindow(elite_hwnd)
-            time.sleep(0.5)  # Longer delay to ensure focus is established
+            time.sleep(0.3)  # Give time for focus to establish
             
-            # Verify the window is actually focused
+            # Verify focus
             focused_hwnd = win32gui.GetForegroundWindow()
             if focused_hwnd != elite_hwnd:
-                logger.warning(f"Failed to focus window for {commander}. Trying alternative method...")
-                # Alternative focus method
+                logger.warning(f"Window focus verification failed for {commander}")
                 win32gui.ShowWindow(elite_hwnd, win32con.SW_RESTORE)
                 win32gui.SetForegroundWindow(elite_hwnd)
-                time.sleep(0.5)
+                time.sleep(0.3)
             
-            # Send first ESC key - use PostMessage for more reliable delivery
-            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
-            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0xC0000000)
-            logger.info(f"First ESC key sent to {commander}")
+            # Method 1: SendMessage with proper key codes (most reliable for games)
+            def send_esc_via_sendmessage():
+                VK_ESCAPE = 0x1B
+                scan_code = 0x01  # ESC scan code
+                
+                # Create proper lParam values
+                lparam_down = 0x00010001  # repeat count=1, scan code=1, extended=0, context=0, previous=0, transition=0
+                lparam_up = 0xC0010001    # repeat count=1, scan code=1, extended=0, context=1, previous=1, transition=1
+                
+                # Send key down
+                result1 = win32gui.SendMessage(elite_hwnd, win32con.WM_KEYDOWN, VK_ESCAPE, lparam_down)
+                time.sleep(0.01)  # Small delay
+                
+                # Send key up  
+                result2 = win32gui.SendMessage(elite_hwnd, win32con.WM_KEYUP, VK_ESCAPE, lparam_up)
+                
+                logger.debug(f"SendMessage results for {commander}: down={result1}, up={result2}")
+                return result1 == 0 and result2 == 0  # 0 indicates success for SendMessage
             
-            # Wait 50ms (more reasonable timing)
-            time.sleep(0.05)
+            # Method 2: PostMessage (asynchronous)
+            def send_esc_via_postmessage():
+                VK_ESCAPE = 0x1B
+                lparam_down = 0x00010001
+                lparam_up = 0xC0010001
+                
+                result1 = win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, VK_ESCAPE, lparam_down)
+                time.sleep(0.01)
+                result2 = win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, VK_ESCAPE, lparam_up)
+                
+                logger.debug(f"PostMessage results for {commander}: down={result1}, up={result2}")
+                return result1 != 0 and result2 != 0  # Non-zero indicates success for PostMessage
             
-            print(f"Sending second ESC key to {commander}'s window...")
+            # Method 3: Global keybd_event (your original method)
+            def send_esc_via_keybd_event():
+                win32api.keybd_event(win32con.VK_ESCAPE, 0x01, 0, 0)  # Key down with scan code
+                time.sleep(0.01)
+                win32api.keybd_event(win32con.VK_ESCAPE, 0x01, win32con.KEYEVENTF_KEYUP, 0)  # Key up
+                return True
             
-            # Send second ESC key
-            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
-            win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0xC0000000)
-            logger.info(f"Second ESC key sent to {commander}")
+            # Method 4: SendInput (most modern approach)
+            def send_esc_via_sendinput():
+                try:
+                    # Import additional required constants
+                    from ctypes import Structure, c_ulong, c_short, c_long, Union
+                    
+                    # Define INPUT structures
+                    class KEYBDINPUT(Structure):
+                        _fields_ = [("wVk", c_short),
+                                    ("wScan", c_short),
+                                    ("dwFlags", c_ulong),
+                                    ("time", c_ulong),
+                                    ("dwExtraInfo", ctypes.POINTER(c_ulong))]
+                    
+                    class HARDWAREINPUT(Structure):
+                        _fields_ = [("uMsg", c_ulong),
+                                    ("wParamL", c_short),
+                                    ("wParamH", c_short)]
+                    
+                    class MOUSEINPUT(Structure):
+                        _fields_ = [("dx", c_long),
+                                    ("dy", c_long),
+                                    ("mouseData", c_ulong),
+                                    ("dwFlags", c_ulong),
+                                    ("time", c_ulong),
+                                    ("dwExtraInfo", ctypes.POINTER(c_ulong))]
+                    
+                    class INPUT_UNION(Union):
+                        _fields_ = [("ki", KEYBDINPUT),
+                                    ("mi", MOUSEINPUT),
+                                    ("hi", HARDWAREINPUT)]
+                    
+                    class INPUT(Structure):
+                        _fields_ = [("type", c_ulong),
+                                    ("ui", INPUT_UNION)]
+                    
+                    # Constants
+                    INPUT_KEYBOARD = 1
+                    KEYEVENTF_KEYUP = 0x0002
+                    
+                    # Create key down input
+                    key_down = INPUT()
+                    key_down.type = INPUT_KEYBOARD
+                    key_down.ui.ki.wVk = win32con.VK_ESCAPE
+                    key_down.ui.ki.wScan = 0x01
+                    key_down.ui.ki.dwFlags = 0
+                    key_down.ui.ki.time = 0
+                    key_down.ui.ki.dwExtraInfo = None
+                    
+                    # Create key up input
+                    key_up = INPUT()
+                    key_up.type = INPUT_KEYBOARD
+                    key_up.ui.ki.wVk = win32con.VK_ESCAPE
+                    key_up.ui.ki.wScan = 0x01
+                    key_up.ui.ki.dwFlags = KEYEVENTF_KEYUP
+                    key_up.ui.ki.time = 0
+                    key_up.ui.ki.dwExtraInfo = None
+                    
+                    # Send the input
+                    inputs = (INPUT * 2)(key_down, key_up)
+                    result = ctypes.windll.user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
+                    
+                    logger.debug(f"SendInput result for {commander}: {result}")
+                    return result == 2  # Should return number of inputs sent
+                    
+                except Exception as e:
+                    logger.debug(f"SendInput failed for {commander}: {e}")
+                    return False
             
-            print(f"Cutscene skip complete for {commander}!")
+            # Try each method in order of preference
+            methods = [
+                ("SendMessage", send_esc_via_sendmessage),
+                ("SendInput", send_esc_via_sendinput), 
+                ("PostMessage", send_esc_via_postmessage),
+                ("keybd_event", send_esc_via_keybd_event)
+            ]
             
+            success_count = 0
+            
+            for attempt in range(2):  # Send ESC twice
+                print(f"Sending ESC key #{attempt + 1} to {commander}...")
+                
+                method_success = False
+                for method_name, method_func in methods:
+                    try:
+                        if method_func():
+                            logger.info(f"ESC key #{attempt + 1} sent successfully to {commander} via {method_name}")
+                            method_success = True
+                            success_count += 1
+                            break
+                        else:
+                            logger.debug(f"{method_name} failed for {commander} ESC #{attempt + 1}")
+                    except Exception as e:
+                        logger.debug(f"{method_name} exception for {commander} ESC #{attempt + 1}: {e}")
+                
+                if not method_success:
+                    logger.warning(f"All methods failed for ESC key #{attempt + 1} to {commander}")
+                
+                # Wait between key presses
+                if attempt == 0:
+                    time.sleep(0.1)  # 100ms between first and second ESC
+            
+            if success_count > 0:
+                print(f"Cutscene skip complete for {commander}! ({success_count}/2 keys sent successfully)")
+                logger.info(f"ESC keys sent to {commander}: {success_count}/2 successful")
+            else:
+                print(f"Failed to send ESC keys to {commander} - all methods failed")
+                logger.error(f"All ESC key methods failed for {commander}")
+                
         except Exception as e:
-            logger.error(f"Error sending ESC keys to {commander}: {e}")
-            print(f"Error sending keys to {commander}: {e}")
-            
-            # Fallback to the original method if PostMessage fails
+            logger.error(f"Error in send_esc_keys for {commander}: {e}")
+            print(f"Critical error sending keys to {commander}: {e}")
+
+    def test_key_methods(self, elite_hwnd: int, commander: str):
+        """Test function to verify which key sending method works best."""
+        print(f"\n--- Testing key sending methods for {commander} ---")
+        
+        # Focus window first
+        win32gui.SetForegroundWindow(elite_hwnd)
+        time.sleep(0.5)
+        
+        # Test each method individually
+        methods_to_test = [
+            ("SendMessage", lambda: win32gui.SendMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0x00010001)),
+            ("PostMessage", lambda: win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0x00010001)),
+            ("keybd_event", lambda: win32api.keybd_event(win32con.VK_ESCAPE, 0x01, 0, 0))
+        ]
+        
+        for method_name, method_func in methods_to_test:
             try:
-                print(f"Trying fallback method for {commander}...")
-                win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)
-                win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)
-                time.sleep(0.05)
-                win32api.keybd_event(win32con.VK_ESCAPE, 0, 0, 0)
-                win32api.keybd_event(win32con.VK_ESCAPE, 0, win32con.KEYEVENTF_KEYUP, 0)
-                logger.info(f"Fallback ESC keys sent to {commander}")
-            except Exception as fallback_error:
-                logger.error(f"Fallback method also failed for {commander}: {fallback_error}")
+                result = method_func()
+                print(f"{method_name}: {'SUCCESS' if result else 'FAILED'} (result: {result})")
+                time.sleep(1)  # Wait between tests
+            except Exception as e:
+                print(f"{method_name}: ERROR - {e}")
+                time.sleep(1)
 
     def process_commander(self, hwnd: int, title: str, commander: str):
         """Process a single commander's window."""
