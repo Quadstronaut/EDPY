@@ -1,6 +1,6 @@
 """
 Elite Dangerous AutoLoad - Multi-Commander Script
-Sends a couple ESC keys to skip the opening cutscene for one or more commanders.
+Double clicks in the center of each client window to skip the opening cutscene.
 
 Requirements:
 - pip install pywin32 pycaw
@@ -46,13 +46,13 @@ class MultiCommanderAutoLoad:
         self.total_commanders = len(self.all_commanders)
         
         print("=" * 60)
-        print("Elite Dangerous Multi-Commander AutoLoad - Skip Cutscene")
+        print("Elite Dangerous Multi-Commander AutoLoad - Double Click Skip")
         print("=" * 60)
         print(f"Looking for process: '{CONFIG['process_name']}.exe'")
         print(f"Window title must contain: '{CONFIG['window_title_contains']}'")
         print(f"Named commanders: {', '.join(CONFIG['commanders'])}")
         print(f"Primary commander (no name in title): {CONFIG['primary_commander']}")
-        print("Will wait for window title AND audio output before sending keys...")
+        print("Will wait for window title AND audio output before double-clicking...")
         print("-" * 60)
 
     def find_unprocessed_elite_windows(self) -> List[Tuple[int, str, str]]:
@@ -208,17 +208,45 @@ class MultiCommanderAutoLoad:
                 
             time.sleep(0.5)  # Check every 500ms
 
-    def send_esc_keys(self, elite_hwnd: int, commander: str):
-        """Send ESC key twice using multiple methods for maximum compatibility."""
+    def get_window_center(self, hwnd: int) -> Tuple[int, int]:
+        """Get the center coordinates of a window."""
         try:
-            print(f"Focusing window and sending ESC keys to {commander}...")
+            rect = win32gui.GetWindowRect(hwnd)
+            left, top, right, bottom = rect
+            center_x = (left + right) // 2
+            center_y = (top + bottom) // 2
             
-            # Ensure window is properly focused
+            logger.debug(f"Window rect: {rect}, center: ({center_x}, {center_y})")
+            return center_x, center_y
+        except Exception as e:
+            logger.error(f"Error getting window center: {e}")
+            raise
+
+    def double_click_window_center(self, elite_hwnd: int, commander: str):
+        """Double click in the center of the Elite Dangerous window."""
+        try:
+            print(f"Focusing window and double-clicking center for {commander}...")
+            
+            # Get window dimensions and center point
+            center_x, center_y = self.get_window_center(elite_hwnd)
+            
+            # Get window client area coordinates (relative to window)
+            rect = win32gui.GetWindowRect(elite_hwnd)
+            client_rect = win32gui.GetClientRect(elite_hwnd)
+            
+            # Convert to client coordinates
+            client_point = win32gui.ScreenToClient(elite_hwnd, (center_x, center_y))
+            client_x, client_y = client_point
+            
+            print(f"Window center - Screen coords: ({center_x}, {center_y}), Client coords: ({client_x}, {client_y})")
+            
+            # Ensure window is properly focused and brought to front
             win32gui.SetForegroundWindow(elite_hwnd)
             win32gui.SetActiveWindow(elite_hwnd)
+            win32gui.BringWindowToTop(elite_hwnd)
             time.sleep(0.3)  # Give time for focus to establish
             
-            # Verify focus
+            # Verify the window is focused
             focused_hwnd = win32gui.GetForegroundWindow()
             if focused_hwnd != elite_hwnd:
                 logger.warning(f"Window focus verification failed for {commander}")
@@ -226,181 +254,77 @@ class MultiCommanderAutoLoad:
                 win32gui.SetForegroundWindow(elite_hwnd)
                 time.sleep(0.3)
             
-            # Method 1: SendMessage with proper key codes (most reliable for games)
-            def send_esc_via_sendmessage():
-                VK_ESCAPE = 0x1B
-                scan_code = 0x01  # ESC scan code
+            # Method 1: Send click messages directly to the window (most reliable)
+            def send_click_via_messages():
+                # Convert client coordinates to lParam format
+                lparam = win32api.MAKELONG(client_x, client_y)
                 
-                # Create proper lParam values
-                lparam_down = 0x00010001  # repeat count=1, scan code=1, extended=0, context=0, previous=0, transition=0
-                lparam_up = 0xC0010001    # repeat count=1, scan code=1, extended=0, context=1, previous=1, transition=1
+                # Send double-click sequence
+                print(f"Sending double-click to client coordinates ({client_x}, {client_y})...")
                 
-                # Send key down
-                result1 = win32gui.SendMessage(elite_hwnd, win32con.WM_KEYDOWN, VK_ESCAPE, lparam_down)
+                # First click
+                win32gui.SendMessage(elite_hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
                 time.sleep(0.01)  # Small delay
+                win32gui.SendMessage(elite_hwnd, win32con.WM_LBUTTONUP, 0, lparam)
                 
-                # Send key up  
-                result2 = win32gui.SendMessage(elite_hwnd, win32con.WM_KEYUP, VK_ESCAPE, lparam_up)
+                time.sleep(0.05)  # Short delay between clicks
                 
-                logger.debug(f"SendMessage results for {commander}: down={result1}, up={result2}")
-                return result1 == 0 and result2 == 0  # 0 indicates success for SendMessage
-            
-            # Method 2: PostMessage (asynchronous)
-            def send_esc_via_postmessage():
-                VK_ESCAPE = 0x1B
-                lparam_down = 0x00010001
-                lparam_up = 0xC0010001
-                
-                result1 = win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, VK_ESCAPE, lparam_down)
+                # Second click (double-click)
+                win32gui.SendMessage(elite_hwnd, win32con.WM_LBUTTONDBLCLK, win32con.MK_LBUTTON, lparam)
                 time.sleep(0.01)
-                result2 = win32gui.PostMessage(elite_hwnd, win32con.WM_KEYUP, VK_ESCAPE, lparam_up)
+                win32gui.SendMessage(elite_hwnd, win32con.WM_LBUTTONUP, 0, lparam)
                 
-                logger.debug(f"PostMessage results for {commander}: down={result1}, up={result2}")
-                return result1 != 0 and result2 != 0  # Non-zero indicates success for PostMessage
-            
-            # Method 3: Global keybd_event (your original method)
-            def send_esc_via_keybd_event():
-                win32api.keybd_event(win32con.VK_ESCAPE, 0x01, 0, 0)  # Key down with scan code
-                time.sleep(0.01)
-                win32api.keybd_event(win32con.VK_ESCAPE, 0x01, win32con.KEYEVENTF_KEYUP, 0)  # Key up
+                logger.info(f"Double-click messages sent to {commander} at ({client_x}, {client_y})")
                 return True
             
-            # Method 4: SendInput (most modern approach)
-            def send_esc_via_sendinput():
-                try:
-                    # Import additional required constants
-                    from ctypes import Structure, c_ulong, c_short, c_long, Union
-                    
-                    # Define INPUT structures
-                    class KEYBDINPUT(Structure):
-                        _fields_ = [("wVk", c_short),
-                                    ("wScan", c_short),
-                                    ("dwFlags", c_ulong),
-                                    ("time", c_ulong),
-                                    ("dwExtraInfo", ctypes.POINTER(c_ulong))]
-                    
-                    class HARDWAREINPUT(Structure):
-                        _fields_ = [("uMsg", c_ulong),
-                                    ("wParamL", c_short),
-                                    ("wParamH", c_short)]
-                    
-                    class MOUSEINPUT(Structure):
-                        _fields_ = [("dx", c_long),
-                                    ("dy", c_long),
-                                    ("mouseData", c_ulong),
-                                    ("dwFlags", c_ulong),
-                                    ("time", c_ulong),
-                                    ("dwExtraInfo", ctypes.POINTER(c_ulong))]
-                    
-                    class INPUT_UNION(Union):
-                        _fields_ = [("ki", KEYBDINPUT),
-                                    ("mi", MOUSEINPUT),
-                                    ("hi", HARDWAREINPUT)]
-                    
-                    class INPUT(Structure):
-                        _fields_ = [("type", c_ulong),
-                                    ("ui", INPUT_UNION)]
-                    
-                    # Constants
-                    INPUT_KEYBOARD = 1
-                    KEYEVENTF_KEYUP = 0x0002
-                    
-                    # Create key down input
-                    key_down = INPUT()
-                    key_down.type = INPUT_KEYBOARD
-                    key_down.ui.ki.wVk = win32con.VK_ESCAPE
-                    key_down.ui.ki.wScan = 0x01
-                    key_down.ui.ki.dwFlags = 0
-                    key_down.ui.ki.time = 0
-                    key_down.ui.ki.dwExtraInfo = None
-                    
-                    # Create key up input
-                    key_up = INPUT()
-                    key_up.type = INPUT_KEYBOARD
-                    key_up.ui.ki.wVk = win32con.VK_ESCAPE
-                    key_up.ui.ki.wScan = 0x01
-                    key_up.ui.ki.dwFlags = KEYEVENTF_KEYUP
-                    key_up.ui.ki.time = 0
-                    key_up.ui.ki.dwExtraInfo = None
-                    
-                    # Send the input
-                    inputs = (INPUT * 2)(key_down, key_up)
-                    result = ctypes.windll.user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
-                    
-                    logger.debug(f"SendInput result for {commander}: {result}")
-                    return result == 2  # Should return number of inputs sent
-                    
-                except Exception as e:
-                    logger.debug(f"SendInput failed for {commander}: {e}")
-                    return False
-            
-            # Try each method in order of preference
-            methods = [
-                ("SendMessage", send_esc_via_sendmessage),
-                ("SendInput", send_esc_via_sendinput), 
-                ("PostMessage", send_esc_via_postmessage),
-                ("keybd_event", send_esc_via_keybd_event)
-            ]
-            
-            success_count = 0
-            
-            for attempt in range(2):  # Send ESC twice
-                print(f"Sending ESC key #{attempt + 1} to {commander}...")
+            # Method 2: Use SetCursorPos + mouse_event (fallback)
+            def send_click_via_mouse_event():
+                # Save current cursor position
+                current_pos = win32gui.GetCursorPos()
                 
-                method_success = False
-                for method_name, method_func in methods:
-                    try:
-                        if method_func():
-                            logger.info(f"ESC key #{attempt + 1} sent successfully to {commander} via {method_name}")
-                            method_success = True
-                            success_count += 1
-                            break
-                        else:
-                            logger.debug(f"{method_name} failed for {commander} ESC #{attempt + 1}")
-                    except Exception as e:
-                        logger.debug(f"{method_name} exception for {commander} ESC #{attempt + 1}: {e}")
+                # Move cursor to window center
+                win32api.SetCursorPos((center_x, center_y))
+                time.sleep(0.1)
                 
-                if not method_success:
-                    logger.warning(f"All methods failed for ESC key #{attempt + 1} to {commander}")
+                # Perform double-click using mouse_event
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                time.sleep(0.05)
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
                 
-                # Wait between key presses
-                if attempt == 0:
-                    time.sleep(0.1)  # 100ms between first and second ESC
+                # Restore cursor position
+                win32api.SetCursorPos(current_pos)
+                
+                logger.info(f"Double-click via mouse_event sent to {commander} at ({center_x}, {center_y})")
+                return True
             
-            if success_count > 0:
-                print(f"Cutscene skip complete for {commander}! ({success_count}/2 keys sent successfully)")
-                logger.info(f"ESC keys sent to {commander}: {success_count}/2 successful")
-            else:
-                print(f"Failed to send ESC keys to {commander} - all methods failed")
-                logger.error(f"All ESC key methods failed for {commander}")
+            # Try Method 1 first (window messages)
+            try:
+                if send_click_via_messages():
+                    print(f"✅ Double-click sent successfully to {commander} via window messages")
+                    logger.info(f"Double-click completed for {commander} using SendMessage")
+                    return
+            except Exception as e:
+                logger.warning(f"SendMessage method failed for {commander}: {e}")
+            
+            # Fallback to Method 2 (mouse_event)
+            try:
+                print(f"Trying fallback method (mouse_event) for {commander}...")
+                if send_click_via_mouse_event():
+                    print(f"✅ Double-click sent successfully to {commander} via mouse_event")
+                    logger.info(f"Double-click completed for {commander} using mouse_event")
+                    return
+            except Exception as e:
+                logger.warning(f"mouse_event method failed for {commander}: {e}")
+            
+            # If both methods failed
+            print(f"❌ Failed to send double-click to {commander} - all methods failed")
+            logger.error(f"All double-click methods failed for {commander}")
                 
         except Exception as e:
-            logger.error(f"Error in send_esc_keys for {commander}: {e}")
-            print(f"Critical error sending keys to {commander}: {e}")
-
-    def test_key_methods(self, elite_hwnd: int, commander: str):
-        """Test function to verify which key sending method works best."""
-        print(f"\n--- Testing key sending methods for {commander} ---")
-        
-        # Focus window first
-        win32gui.SetForegroundWindow(elite_hwnd)
-        time.sleep(0.5)
-        
-        # Test each method individually
-        methods_to_test = [
-            ("SendMessage", lambda: win32gui.SendMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0x00010001)),
-            ("PostMessage", lambda: win32gui.PostMessage(elite_hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0x00010001)),
-            ("keybd_event", lambda: win32api.keybd_event(win32con.VK_ESCAPE, 0x01, 0, 0))
-        ]
-        
-        for method_name, method_func in methods_to_test:
-            try:
-                result = method_func()
-                print(f"{method_name}: {'SUCCESS' if result else 'FAILED'} (result: {result})")
-                time.sleep(1)  # Wait between tests
-            except Exception as e:
-                print(f"{method_name}: ERROR - {e}")
-                time.sleep(1)
+            logger.error(f"Error in double_click_window_center for {commander}: {e}")
+            print(f"Critical error sending double-click to {commander}: {e}")
 
     def process_commander(self, hwnd: int, title: str, commander: str):
         """Process a single commander's window."""
@@ -413,11 +337,11 @@ class MultiCommanderAutoLoad:
         self.wait_for_audio(commander)
 
         # Brief pause to ensure everything is ready
-        print(f"Audio detected for {commander}! Waiting 1 second before sending keys...")
+        print(f"Audio detected for {commander}! Waiting 1 second before double-clicking...")
         time.sleep(1)
         
-        # Send the ESC keys to skip cutscene
-        self.send_esc_keys(hwnd, commander)
+        # Double-click the center of the window to skip cutscene
+        self.double_click_window_center(hwnd, commander)
         
         # Mark this commander as processed
         self.processed_commanders.add(commander)
