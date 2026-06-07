@@ -40,13 +40,13 @@ Python 3.9+ recommended. No single `requirements.txt` is provided — install pe
 
 ## Rackham Wine — configuration
 
-Copy `.env.example` to `.env` (or create `.env` manually) in the `Rackham_Wine/` directory:
+Create a `.env` file in the `Rackham_Wine/` directory:
 
 ```
 RACKHAM_WEBHOOK=https://discord.com/api/webhooks/...
 ```
 
-The price threshold (`PRICE_THRESHOLD`) and inara.cz URL (`INARA_URL`) are constants at the top of `rackham_wine.py` — edit them directly.
+The price threshold (`PRICE_THRESHOLD`), inara.cz URL (`INARA_URL`), and price history file path (`PRICE_FILE`) are constants at the top of `rackham_wine.py` — edit them directly.
 
 The `wrapper_rackham_wine.sh` contains two placeholder paths (`/foo/bar/...`) that **must** be updated to reflect the actual deployment directory before the script is run or added to crontab.
 
